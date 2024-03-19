@@ -1,64 +1,123 @@
+import redis
 import re
 import stable_whisper
 import os
 from pytube import YouTube, Channel, request
 import pandas as pd
-from dotenv import load_dotenv
+import threading
 
-load_dotenv()
+from functools import partial
+from utils import utils
 
-class TranscribeService:
-  def __init__(self):
-    cache_dir = os.path.expanduser("~/.cache/whisper")
+class WhisperService:
+
+
+  def __init__(self, redis_service=None):
+    # cache_dir = os.path.expanduser("~/.cache/whisper")
+    # model = AutoModel.from_pretrained("Tanrei/GPTSAN-japanese")
+    # converted_model = convert_hf_whisper("Tanrei/GPTSAN-japanese", "./models/whisperGPTSAN.pt")
+    # self.model = stable_whisper.load_model(converted_model)
+    self.redis_service = redis_service
+    #? Local development only
     self.model = stable_whisper.load_model('medium')
+    
+
+  def get_progress_by_video_id(self, video_id):
+    progress_data = self.ssh_tunnel.hgetall(video_id)
+    if progress_data:
+        # Convert byte strings to appropriate data types
+        progress = {
+            "transcribed_seconds": float(progress_data.get(b"transcribed_seconds", 0)),
+            "total_seconds": float(progress_data.get(b"total_seconds", 1)),
+            "progress": float(progress_data.get(b"progress", 0))
+        }
+        return progress
+    else:
+        # Handle the case where the key doesn't exist
+        return None
+
+  # progress_callback : Callable, optional
+  #     A function that will be called when transcription progress is updated.
+  #     The callback need two parameters.
+  #     The first parameter is a float for seconds of the audio that has been transcribed.
+  #     The second parameter is a float for total duration of audio in seconds.
+  def update_progress(self, videoId, *args, **kwargs):
+      #? Get the keyword arguments
+      transcribed_seconds = kwargs.get('seek', 0)
+      total_seconds = kwargs.get('total', 1)  # Avoid division by zero
+      # seek = kwargs.get('seek', None)
+      # if seek is not None:
+      #   print(f"Seek duration: {seek}")
+
+      # if args:
+      #     print(f"Additional positional arguments: {args}")
+      # if kwargs:
+      #     print(f"Additional keyword arguments: {kwargs}")
+
+      progress_percentage = (transcribed_seconds / total_seconds) * 100
+      print("Wew my progress update function")
+      print(f"Transcribed: {transcribed_seconds:.2f}s / {total_seconds:.2f}s ({progress_percentage:.2f}%)")
+
+      self.ssh_tunnel.hmset(videoId, {
+          "transcribed_seconds": transcribed_seconds,
+          "total_seconds": total_seconds,
+          "progress": progress_percentage
+      })
+
 
   def transcribev3(self, video_url):
+    video_id = video_url
     language ="ja"
+    update_progress_callback = partial(self.update_progress, video_id)
 
-    video_id = self.extract_video_id(video_url)
-    
-    request._DEFAULT_TIMEOUT = 600
+    root_dir = os.getcwd()  # Get the current working directory (root)
+    audio_track_dir = os.path.join(root_dir, 'output/track')
+    lyrics_dir = os.path.join(root_dir, 'output/lyrics')
 
     audio_filename = video_id + ".mp4"
-    transcript_filename = video_id + ".srt"
+    lyrics_filename = os.path.join(lyrics_dir, video_id + ".srt")
+
+    print("Finding lyrics file... ")
+
+    #? Check if lyrics already exists
+    if os.path.exists(lyrics_filename):
+      # If .srt already exists, return it immediately
+       print("Lyrics already exist for this videoId, returning lyrics")
+       return lyrics_filename
+
+
+    print("Lyrics doesn't exist, finding audio file...")
+    #? Check if audio already exists
+    audio_filename = os.path.join(audio_track_dir, video_id + ".mp4") 
 
     if not os.path.exists(audio_filename):
-      audio_file = YouTube(video_url).streams.filter(only_audio=True).first().download(filename=audio_filename)
+      full_vid_url = "https://www.youtube.com/watch?v=" + video_id
+      audio_source =  audio_file = YouTube(full_vid_url)
+      audio_duration = audio_source.length
+      print("Audio_duration is: ", audio_duration)
+
+      if(audio_duration > 480):
+         print("Audio source is too long, cancelling request...")
+         return None
+      
+      else:
+        print("Audio file not found, downloading audio file...")
+        audio_file = audio_source.streams.filter(only_audio=True).first().download(filename=audio_filename)
+        audio_file_downloaded = True
     else:
+      print("Audio already exists, using existing audio file...")
       audio_file = audio_filename
 
+    print("Transcribing audio file...")
+    result = self.model.transcribe(audio_file, language=language, word_timestamps=True, beam_size=5,no_speech_threshold=0.38, vad=True, progress_callback=update_progress_callback).split_by_length(max_chars=20)
+    result.to_srt_vtt(lyrics_filename)
+    # tag: tuple of (str, str), default None, meaning ('<font color="#00ff00">', '</font>') if SRT else ('<u>', '</u>')     Tag used to change the properties a word at its timestamp.
+    print("Transcription complete, returning lyrics file...")
+
+
+    os.remove(audio_file)
+    return lyrics_filename
     
-    if os.path.exists(transcript_filename):
-      parsed_srt = self.parse_srt_file(transcript_filename)
-      print("This is line in lyrics: ")
-      for line in parsed_srt["lyrics"]:
-        print(line)
-      
-      print("This is line in lines:")
-      for line in parsed_srt["lines"]:
-         print(line)
-
-      # print("This is each line item: ")
-      # for line in parsed_srt["lines"]:
-      #   print("Lyric Row: ", line["text"])
-      #   print("Start Time: ", line["start_time"])
-      #   print("End Time: ", line["end_time"])
-        
-      #   print("This is each word item: ")
-      #   for word in line["words"]:
-      #     print("Word: ", word["word"])
-      #     print("Start Time: ", word["start_time"])
-      #     print("End Time: ", word["end_time"])
-      #     print("Duration: ", word["duration"])
-
-      print("This is length of lyrics: ", len(parsed_srt["lyrics"]))
-      print("This is length of lines: ", len(parsed_srt["lines"]))
-
-      
-
-    else:
-      result = self.model.transcribe(audio_file, language=language, word_timestamps=True, beam_size=5, vad=True)
-      result.to_srt_vtt(transcript_filename)
 
   #! Process AI generated srt file for frontend
   def parse_srt_file(self, srt_filename):
@@ -99,8 +158,8 @@ class TranscribeService:
         #? If row is a timestamp, get start_time, end_time, and duration
         if re.match(r"\d+:\d+:\d+,\d+ --> \d+:\d+:\d+,\d+", line):
             start_time, end_time = line.split(" --> ")
-            start_time = float(format(self.time_to_seconds(start_time), '.3f'))
-            end_time = float(format(self.time_to_seconds(end_time), '.3f'))
+            start_time = float(format(utils.time_to_seconds(start_time), '.3f'))
+            end_time = float(format(utils.time_to_seconds(end_time), '.3f'))
             current_block["start_time"] = start_time
             current_block["end_time"] = end_time
             current_block["duration"] = format(round(end_time - start_time, 3), '.3f')
@@ -188,28 +247,17 @@ class TranscribeService:
       if sub_array_for_lines['words'] and sub_array_for_lines["text"] != '':
         sub_array_for_lines['end_time'] = sub_array_for_lines['words'][-1]['end_time']
         lyrics_info["lines"].append(sub_array_for_lines.copy())
+
+      # print("This is check for whether lines and lyrics are same length")
+      # for key, value in lyrics_info.items():
+      #    if isinstance(value, list):
+      #       print(f"Length of '{key}': {len(value)}")
+
       return lyrics_info
 
+
+
   # ? HELPER FUNCTIONS
-  def time_to_seconds(self, time_str):
-      # Convert timestamp from HH:MM:SS,mmm to seconds with milliseconds
-      parts = time_str.split(":")
-      hours = int(parts[0])
-      minutes = int(parts[1])
-      seconds, milliseconds = map(int, parts[2].split(","))
-      total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
-      return total_seconds
-
-  def extract_video_id(self, youtube_url):
-      # Regular expression for finding a YouTube video ID
-      video_id_pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11})'
-      
-      match = re.search(video_id_pattern, youtube_url)
-      if match:
-          return match.group(1)
-      else:
-          return None
-
   def remove_html_tags(self, line):
       # Use regex to remove HTML tags
       clean_line = re.sub(r'<[^>]+>', '', line)
@@ -223,5 +271,4 @@ class TranscribeService:
       else:
           return False
 
-transcribe_service = TranscribeService()
-transcribe_service.transcribev3("https://www.youtube.com/watch?v=x90-vUMKdx0")
+

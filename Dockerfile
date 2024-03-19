@@ -1,7 +1,4 @@
 FROM python:3.11
-
-
-
 WORKDIR /app
 
 COPY requirements.txt .
@@ -11,4 +8,4 @@ COPY . .
 
 EXPOSE 5050
 
-CMD ["python", "app.py"]
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "--workers", "3", "--timeout", "900", "app:app"]
