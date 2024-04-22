@@ -1,5 +1,9 @@
 import json
 from pytube import YouTube, Playlist, Search
+import sys
+sys.path.append('../')
+
+from utils import utils
 
 class PyTubeService:
     def get_video_info(self, video_id):
@@ -12,17 +16,27 @@ class PyTubeService:
         Returns:
         - dict: A dictionary containing information about the video.
         """
+
+        # 'register_on_complete_callback', 'register_on_progress_callback',
+        # ! Can actually use register on complete to upload data to appwrite
+
         try:
             video = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+            print(dir(video))
+            print("PRINTING FULL VIDEO")
+            utils.print_full_content(video)
             return {
                 "title": video.title,
+                "_title": video._title,
                 "author": video.author,
+                "video_id": video.video_id,
                 "views": video.views,
                 "length": video.length,
                 "description": video.description,
                 "thumbnail_url": video.thumbnail_url,
-                "streams": video.streams,
-                "captions": video.captions,
+                "embed_url":video.embed_url,
+                "keywords":video.keywords,
+                "views": video.views,
             }
         except Exception as e:
             print(f"Error fetching video info: {e}")
@@ -66,12 +80,20 @@ class PyTubeService:
                 if video.length <= 480:
                     video_info = {
                         "title": video.title,
+                        # _title is same as title
+                        "_title": video._title,
                         "author": video.author,
                         "video_id": video.video_id,
                         "views": video.views,
                         "length": video.length,
                         "description": video.description,
                         "thumbnail_url": video.thumbnail_url,
+                        # embed_url is basically the youtube url
+                        # "embed_url":video.embed_url,
+                        "keywords":video.keywords,
+                        "views": video.views,
+                        "metadata": video.metadata,
+                        "_metadata": video._metadata,
                     }
                     results_list.append(video_info)
 
@@ -111,7 +133,38 @@ def print_object(obj):
 #     print_object(result)
 
 #? completion
-suggestions = pytube_service.get_search_suggestions("ado kura")
-print("RESULTS ARE BACK, ABOVE ARE FROM INSIDE FUNCTION")
-for result in suggestions:
-    print_object(result)
+# suggestions = pytube_service.get_search_suggestions("ado kura")
+# print("RESULTS ARE BACK, ABOVE ARE FROM INSIDE FUNCTION")
+# for result in suggestions:
+    # print_object(result)
+
+# print("ABOVE ARE ALL AUTOCOMPLETE SUGGESTIONS")
+
+# video_info = pytube_service.get_video_info("VyvhvlYvRnc")
+# video_info = pytube_service.get_video_info("tLQLa6lM3Us")
+# utils.print_full_content(video_info)
+# print_object(video_info)
+# print("ABOVE ARE VIDEO INFO")
+        
+testing_obj = YouTube.from_id("tLQLa6lM3Us")
+
+                # "title": video.title,
+                # "_title": video._title,
+                # "author": video.author,
+                # "video_id": video.video_id,
+                # "views": video.views,
+                # "length": video.length,
+                # "description": video.description,
+                # "thumbnail_url": video.thumbnail_url,
+                # "embed_url":video.embed_url,
+                # "keywords":video.keywords,
+                # "views": video.views,
+
+# print_object(testing_obj)
+print(testing_obj.title)
+print(testing_obj.author)
+print(testing_obj.video_id)
+print(testing_obj.views)
+print(testing_obj.length)
+print(testing_obj.description)
+print(testing_obj.thumbnail_url)

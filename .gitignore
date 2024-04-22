@@ -5,8 +5,9 @@ __pycache__/
 
 # C extensions
 *.so
-
 # Distribution / packaging
+myenv/
+.venv/
 .Python
 build/
 develop-eggs/
@@ -26,6 +27,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 output/
+.DS_Store
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

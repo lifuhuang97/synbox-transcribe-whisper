@@ -1,4 +1,3 @@
-import redis
 import re
 import stable_whisper
 import os
@@ -22,19 +21,19 @@ class WhisperService:
     self.model = stable_whisper.load_model('medium')
     
 
-  def get_progress_by_video_id(self, video_id):
-    progress_data = self.ssh_tunnel.hgetall(video_id)
-    if progress_data:
+#   def get_progress_by_video_id(self, video_id):
+    # progress_data = self.ssh_tunnel.hgetall(video_id)
+    # if progress_data:
         # Convert byte strings to appropriate data types
-        progress = {
-            "transcribed_seconds": float(progress_data.get(b"transcribed_seconds", 0)),
-            "total_seconds": float(progress_data.get(b"total_seconds", 1)),
-            "progress": float(progress_data.get(b"progress", 0))
-        }
-        return progress
-    else:
+        # progress = {
+            # "transcribed_seconds": float(progress_data.get(b"transcribed_seconds", 0)),
+            # "total_seconds": float(progress_data.get(b"total_seconds", 1)),
+            # "progress": float(progress_data.get(b"progress", 0))
+        # }
+        # return progress
+    # else:
         # Handle the case where the key doesn't exist
-        return None
+        # return None
 
   # progress_callback : Callable, optional
   #     A function that will be called when transcription progress is updated.
@@ -58,11 +57,14 @@ class WhisperService:
       print("Wew my progress update function")
       print(f"Transcribed: {transcribed_seconds:.2f}s / {total_seconds:.2f}s ({progress_percentage:.2f}%)")
 
-      self.ssh_tunnel.hmset(videoId, {
-          "transcribed_seconds": transcribed_seconds,
-          "total_seconds": total_seconds,
-          "progress": progress_percentage
-      })
+    #   self.ssh_tunnel.hmset(videoId, {
+    #       "transcribed_seconds": transcribed_seconds,
+    #       "total_seconds": total_seconds,
+    #       "progress": progress_percentage
+    #   })
+
+  def get_available_models(self):
+    return stable_whisper.available_models()
 
 
   def transcribev3(self, video_url):
@@ -110,6 +112,7 @@ class WhisperService:
 
     print("Transcribing audio file...")
     result = self.model.transcribe(audio_file, language=language, word_timestamps=True, beam_size=5,no_speech_threshold=0.38, vad=True, progress_callback=update_progress_callback).split_by_length(max_chars=20)
+    
     result.to_srt_vtt(lyrics_filename)
     # tag: tuple of (str, str), default None, meaning ('<font color="#00ff00">', '</font>') if SRT else ('<u>', '</u>')     Tag used to change the properties a word at its timestamp.
     print("Transcription complete, returning lyrics file...")

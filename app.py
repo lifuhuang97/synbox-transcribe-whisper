@@ -5,42 +5,44 @@ from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 import threading
 from dotenv import load_dotenv
+import sys
 
 from services.appwrite_service import AppwriteService
 from services.whisper_service import WhisperService
 from services.openai_service import OpenAIService
-from services.redis_service import RedisService
 
 from utils import utils
 
 load_dotenv()
+sys.path.append('../')
 
 app = Flask(__name__)
 CORS(app)
 
-redis_service = RedisService()
-whisper_service = WhisperService(redis_service)
+# Where's redis?
+whisper_service = WhisperService()
 openai_service = OpenAIService()
 appwrite_service = AppwriteService()
 
 
-
-
-
-
+@app.route('/available_models')
+def available_models():
+    models = whisper_service.get_available_models()
+    return jsonify(models)
 
 @app.route('/progress-stream/<video_id>')
 def progress_stream(video_id):
-    def generate():
-        while True:
+    print("hey")
+    # def generate():
+        # while True:
             # Logic to wait for and fetch the latest progress
-            print("Task id is: ", video_id)
-            progress = whisper_service.get_progress_by_video_id(video_id)
-            print("This is progress in progress_stream", progress)
-            yield f"data: {json.dumps({'progress': progress})}\n\n"
-            time.sleep(2)  # Adjust the sleep time as needed
+            # print("Task id is: ", video_id)
+            # progress = whisper_service.get_progress_by_video_id(video_id)
+            # print("This is progress in progress_stream", progress)
+            # yield f"data: {json.dumps({'progress': progress})}\n\n"
+            # time.sleep(2)  # Adjust the sleep time as needed
 
-    return Response(generate(), mimetype='text/event-stream')
+    # return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route('/transcribe')
