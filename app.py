@@ -1,16 +1,16 @@
 import json
 import os
-import time
-from flask import Flask, jsonify, request, Response
-from flask_cors import CORS
-import threading
-from dotenv import load_dotenv
 import sys
+import threading
+import time
+
+from dotenv import load_dotenv
+from flask import Flask, Response, jsonify, request
+from flask_cors import CORS
 
 from services.appwrite_service import AppwriteService
-from services.whisper_service import WhisperService
 from services.openai_service import OpenAIService
-
+from services.whisper_service import WhisperService
 from utils import utils
 
 load_dotenv()
@@ -19,7 +19,6 @@ sys.path.append('../')
 app = Flask(__name__)
 CORS(app)
 
-# Where's redis?
 whisper_service = WhisperService()
 openai_service = OpenAIService()
 appwrite_service = AppwriteService()
