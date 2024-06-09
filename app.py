@@ -24,16 +24,15 @@ appwrite_service = AppwriteService()
 
 @app.route('/progress-stream/<video_id>')
 def progress_stream(video_id):
-    print("hey")
+
+    return
 
 
 @app.route('/transcribe')
 def transcription_endpoint():
     # http://localhost:8080/transcribe?q=https://www.youtube.com/watch?v=sK5KMI2Xu98
     query = request.args.get('q')
-    print("Query received: ", query)
     video_id = utils.extract_video_id(query)
-    print("This is video_id", video_id)
 
     if video_id:
         transcription = openai_service.get_transcription(video_id)

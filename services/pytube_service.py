@@ -23,7 +23,6 @@ class PyTubeService:
         try:
             video = YouTube(f"https://www.youtube.com/watch?v={video_id}")
             print(dir(video))
-            print("PRINTING FULL VIDEO")
             utils.print_full_content(video)
             return {
                 "title": video.title,
@@ -66,9 +65,6 @@ class PyTubeService:
 
     def get_search_suggestions(self, keyword):
         suggestions = Search(keyword).completion_suggestions
-        print("This print is inside the function")
-        print(suggestions)
-        print("This print is inside the function")
         return suggestions
 
     def search_videos(self, keyword):
@@ -97,7 +93,6 @@ class PyTubeService:
                     }
                     results_list.append(video_info)
 
-            print("This is length of final result after filter: ", len(results_list))
             return results_list
         except Exception as e:
             print(f"Error searching videos: {e}")

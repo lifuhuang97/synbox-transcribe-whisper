@@ -26,7 +26,6 @@ class AppwriteService:
 
 
   def upload_lyrics(self, video_id, data):
-
     print("upload_database - video_id received: ", video_id)
     print("upload_database - data received: ", data)
 
@@ -40,9 +39,6 @@ class AppwriteService:
 
   def edit_lyrics(self, video_id, data):
 
-    print("edit_database - video_id received: ", video_id)
-    print("edit_database - data received: ", data)
-
     self.databases.update_document(
       database_id=self.database_id,
       collection_id=self.collection_id,
@@ -51,8 +47,6 @@ class AppwriteService:
     )
 
   def get_lyrics(self, video_id):
-      
-      print("get_lyrics - video_id received: ", video_id)
 
       document = self.databases.get_document(
         database_id=self.database_id,
@@ -60,15 +54,9 @@ class AppwriteService:
         document_id=video_id
       )
 
-      print("get_lyrics - document received: ", document)
-
       return document
 
   def update_lyrics(self, video_id, field, data):
-        
-      print("update_lyrics - video_id received: ", video_id)
-      print("update_lyrics - field received: ", field)
-      print("update_lyrics - data received: ", data)
 
       if(field == "visit_count"):
         self.databases.update_document(
@@ -89,15 +77,12 @@ class AppwriteService:
 
 # db_access = AppwriteService()
 # # db_access.upload_lyrics('VyvhvlYvRnc', 'test')
-# print("PART 1")
+
 # db_access.update_lyrics('VyvhvlYvRnc', 'full_lyrics', 'test_replace_v2')
 # db_access.get_lyrics('VyvhvlYvRnc')
-# print("PART 2")
+
 # db_access.update_lyrics('VyvhvlYvRnc', 'visit_count', 5)
 # db_access.get_lyrics('VyvhvlYvRnc')
-# print("PART 3")
+
 # db_access.update_lyrics('VyvhvlYvRnc', 'romaji', 'romaji_test_replace_v1')
 # db_access.get_lyrics('VyvhvlYvRnc')
-# print("ALL DONE")
-    
-  

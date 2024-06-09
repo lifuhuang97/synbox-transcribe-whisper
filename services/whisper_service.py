@@ -62,9 +62,8 @@ class WhisperService:
         #     print(f"Additional keyword arguments: {kwargs}")
 
         progress_percentage = (transcribed_seconds / total_seconds) * 100
-        print("Wew my progress update function")
         print(
-            f"Transcribed: {transcribed_seconds:.2f}s / {total_seconds:.2f}s ({progress_percentage:.2f}%)"
+            f"[Update_progress] Transcribed: {transcribed_seconds:.2f}s / {total_seconds:.2f}s ({progress_percentage:.2f}%)"
         )
 
     #   self.ssh_tunnel.hmset(videoId, {
@@ -123,8 +122,6 @@ class WhisperService:
             audio_file = audio_filename
 
         # use denoiser="demucs" and vad=True for music
-
-        print("Transcribing audio file...")
 
         # TODO: Add detect language before proceeding to transcribe
         # detect the spoken language
