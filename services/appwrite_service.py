@@ -30,23 +30,12 @@ class AppwriteService:
     print("upload_database - video_id received: ", video_id)
     print("upload_database - data received: ", data)
 
-    placeholder_vid_id = 'VyvhvlYvRnc'      
-
-    placeholder_data = {
-      "visit_count":0,
-      "full_lyrics":"full_lyrics_yapyap",
-      "kanji_annotation":"kanji_yapyap",
-      "romaji":"romaji_yapyap",
-      "eng_translation":"eng_yapyap",
-      "chi_translation":"chi_yapyap", 
-    }
-
     self.databases.create_document(
       database_id=self.database_id,
       collection_id=self.collection_id,
-      document_id=placeholder_vid_id,
+      document_id=video_id,
       # document_id=video_id,
-      data=placeholder_data
+      data=data
     )
 
   def edit_lyrics(self, video_id, data):

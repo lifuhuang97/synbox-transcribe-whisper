@@ -71,3 +71,42 @@ def time_to_seconds(time_str):
   seconds, milliseconds = map(int, parts[2].split(","))
   total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
   return total_seconds
+
+def convert_time_to_seconds(time_str: str) -> float:
+    hours, minutes, seconds_milliseconds = time_str.split(':')
+    seconds, milliseconds = seconds_milliseconds.split(',')
+    total_seconds = int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000
+    return total_seconds
+
+def process_gpt_transcription(srt_content):
+    # Process the transcription response from OpenAI
+    lyrics = []
+    timestamped_lyrics = []
+
+    srt_blocks = srt_content.strip().split("\n\n")
+    for block in srt_blocks:
+        lines = block.strip().split("\n")
+        if len(lines) >= 3:
+            index = lines[0]
+            timestamp = lines[1]
+            lyric = ' '.join(lines[2:])
+
+            lyrics.append(lyric)
+
+            start_time_str, end_time_str = timestamp.split(' --> ')
+            start_time = convert_time_to_seconds(start_time_str)
+            end_time = convert_time_to_seconds(end_time_str)
+            duration = end_time - start_time
+
+            timestamped_lyrics.append({
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration": duration,
+                "lyric": lyric
+            })
+
+    return {
+        "lyrics": lyrics,
+        "timestamped_lyrics": timestamped_lyrics
+    }
+

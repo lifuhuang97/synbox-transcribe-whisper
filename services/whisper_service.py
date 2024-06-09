@@ -21,12 +21,11 @@ class WhisperService:
         self.redis_service = redis_service
         # ? Local development only
         # self.model = stable_whisper.load_model('medium')
-        self.model = stable_whisper.load_model("small")
+        self.model = stable_whisper.load_model("medium")
         self.extra_models = [
             stable_whisper.load_model(name)
             for name in [
-                "base",
-                "tiny",
+                "small",
             ]
         ]
 
@@ -127,24 +126,32 @@ class WhisperService:
 
         print("Transcribing audio file...")
 
+        # TODO: Add detect language before proceeding to transcribe
+        # detect the spoken language
+        # _, probs = model.detect_language(mel)
+        # print(f"Detected language: {max(probs, key=probs.get)}")
+
         result = (
             self.model.transcribe(
                 audio_file,
                 language=language,
-                word_timestamps=True,
-                beam_size=5,
-                no_speech_threshold=0.38,
+                no_speech_threshold=0.48,
+                # word_timestamps=False,
+                only_voice_freq=True,
                 vad=True,
-                extra_models=self.extra_models,
+                vad_onnx=True,
+                vad_threshold=0.3,
                 denoiser="demucs",
+                extra_models=self.extra_models,
                 progress_callback=update_progress_callback,
-            )
-            .split_by_gap()
-            .split_by_length(max_chars=20)
+                    )
+            .split_by_gap(0.1)  # Fine-tune gap value for splitting
+            # .split_by_length(max_chars=10)  # Decrease max_chars to make segments shorter
         )
+        
         # result = self.model.transcribe(audio_file, language=language, word_timestamps=False, beam_size=5,no_speech_threshold=0.38, vad=True, extra_models=self.extra_models, denoiser="demucs", progress_callback=update_progress_callback).split_by_gap().split_by_length(max_chars=20)
         # result = self.model.transcribe_minimal(audio_file, language=language)  # (audio_file, language=language, word_timestamps=False, beam_size=5,no_speech_threshold=0.38, vad=True, progress_callback=update_progress_callback).split_by_length(max_chars=20)
-        result.to_srt_vtt(lyrics_filename)
+        result.to_srt_vtt(lyrics_filename, tag=("<font>","</font>"))
 
         # refined_result = self.model.align(audio_file, result, language=language)
         # refined_lyrics_filename = os.path.join(lyrics_dir, video_id + "_refined.srt")
@@ -168,7 +175,7 @@ class WhisperService:
             lines = file.readlines()
 
             # ? Identifies current line of lyrics
-            current_line = None
+            current_line = ""
             # ? Identifies the end time of the last seen character
             previous_character_end_time = 0
 
@@ -260,6 +267,13 @@ class WhisperService:
 
                     # ? If we are still on the same line as the previous word:
                     if current_line == line_word_is_in:
+
+                        # If there's a gap, add a space
+                        if current_block["start_time"] - previous_character_end_time > 0:
+                            current_line += " "
+                        # Add the word to the current line and subarray
+                        current_line += current_block["word"]
+
                         # Add contents of this block to the subarray
                         sub_array_for_lines["words"].append(current_block.copy())
                         previous_character_end_time = current_block["end_time"]
@@ -269,34 +283,73 @@ class WhisperService:
                             "end_time": 0,
                             "duration": 0,
                         }
+
+                        # Check line length and split if necessary
+                        if len(current_line) > 20:
+                            lyrics_info["lines"].append(sub_array_for_lines.copy())
+                            sub_array_for_lines = {
+                                "text": "",
+                                "start_time": 0,
+                                "end_time": 0,
+                                "words": [],
+                            }
+                            current_line = ""
+
                     # ? If we moved onto a new line:
                     else:
-                        # ? Add new line to the full lyrics array
-                        if (
-                            current_line is not None
-                            and sub_array_for_lines["text"] != ""
-                        ):  # Check if not the first line
-                            # ? Update end time and add the subarray of all words into tbr
-                            if previous_character_end_time == 0:
-                                previous_character_end_time = current_block["end_time"]
-                            sub_array_for_lines["end_time"] = (
-                                previous_character_end_time
-                            )
-                            lyrics_info["lines"].append(sub_array_for_lines.copy())
-                        current_line = line_word_is_in
-                        lyrics_info["lyrics"].append(current_line)
-                        print("This is subarray for lines: ", sub_array_for_lines)
-                        sub_array_for_lines = {
-                            "text": current_line,
-                            "start_time": current_block["start_time"],
-                            "end_time": 0,
-                            "words": [current_block.copy()],
-                        }
+                        # If the current line length is within the limits, merge lines
+                        if len(current_line) <= 15 or (len(current_line) <= 20 and len(current_line) + len(current_block["word"]) <= 20):
+                            if current_block["start_time"] - previous_character_end_time > 0.5:
+                                current_line += " "
+                            current_line += current_block["word"]
+                            sub_array_for_lines["words"].append(current_block.copy())
+                            previous_character_end_time = current_block["end_time"]
+                            current_block = {"word": "", "start_time": 0, "end_time": 0, "duration": 0}
+
+                        else:
+                            # Add the current line to lyrics info and reset for the next line
+                            if sub_array_for_lines["text"]:
+                                sub_array_for_lines["end_time"] = previous_character_end_time
+                                lyrics_info["lines"].append(sub_array_for_lines.copy())
+                            current_line = line_word_is_in
+                            sub_array_for_lines = {
+                                "text": current_line,
+                                "start_time": current_block["start_time"],
+                                "end_time": 0,
+                                "words": [current_block.copy()],
+                            }
+
             if sub_array_for_lines["words"] and sub_array_for_lines["text"] != "":
-                sub_array_for_lines["end_time"] = sub_array_for_lines["words"][-1][
-                    "end_time"
-                ]
+                sub_array_for_lines["end_time"] = sub_array_for_lines["words"][-1]["end_time"]
                 lyrics_info["lines"].append(sub_array_for_lines.copy())
+
+            return lyrics_info
+            #             # ? Add new line to the full lyrics array
+            #             if (
+            #                 current_line is not None
+            #                 and sub_array_for_lines["text"] != ""
+            #             ):  # Check if not the first line
+            #                 # ? Update end time and add the subarray of all words into tbr
+            #                 if previous_character_end_time == 0:
+            #                     previous_character_end_time = current_block["end_time"]
+            #                 sub_array_for_lines["end_time"] = (
+            #                     previous_character_end_time
+            #                 )
+            #                 lyrics_info["lines"].append(sub_array_for_lines.copy())
+            #             current_line = line_word_is_in
+            #             lyrics_info["lyrics"].append(current_line)
+            #             print("This is subarray for lines: ", sub_array_for_lines)
+            #             sub_array_for_lines = {
+            #                 "text": current_line,
+            #                 "start_time": current_block["start_time"],
+            #                 "end_time": 0,
+            #                 "words": [current_block.copy()],
+            #             }
+            # if sub_array_for_lines["words"] and sub_array_for_lines["text"] != "":
+            #     sub_array_for_lines["end_time"] = sub_array_for_lines["words"][-1][
+            #         "end_time"
+            #     ]
+            #     lyrics_info["lines"].append(sub_array_for_lines.copy())
 
             # print("This is check for whether lines and lyrics are same length")
             # for key, value in lyrics_info.items():
