@@ -33,7 +33,6 @@ class AppwriteService:
       database_id=self.database_id,
       collection_id=self.collection_id,
       document_id=video_id,
-      # document_id=video_id,
       data=data
     )
 

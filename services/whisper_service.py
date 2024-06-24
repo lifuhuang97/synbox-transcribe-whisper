@@ -194,8 +194,8 @@ class WhisperService:
                 # ? If row is a timestamp, get start_time, end_time, and duration
                 if re.match(r"\d+:\d+:\d+,\d+ --> \d+:\d+:\d+,\d+", line):
                     start_time, end_time = line.split(" --> ")
-                    start_time = float(format(utils.time_to_seconds(start_time), ".3f"))
-                    end_time = float(format(utils.time_to_seconds(end_time), ".3f"))
+                    start_time = float(format(utils.convert_time_to_seconds(start_time), ".3f"))
+                    end_time = float(format(utils.convert_time_to_seconds(end_time), ".3f"))
                     current_block["start_time"] = start_time
                     current_block["end_time"] = end_time
                     current_block["duration"] = format(
