@@ -8,7 +8,7 @@ from termcolor import colored
 
 translation_setup_system_message = {
     "role": "system",
-    "content": """You are an expert translator with a deep understanding of Japanese lyrics, tasked with translating song lyrics into English and Chinese and return them in JSON. The translations must be tonally consistent with the original song and capture the full context and emotion of the lyrics.
+    "content": """You are an expert translator with a deep understanding of Japanese lyrics, tasked with translating song lyrics into English and Chinese and returning them in JSON. The translations must be tonally consistent with the original song and capture the full context and emotion of the lyrics.
     
 Requirements:
 1. The translated lyrics should form a complete and coherent narrative, connecting each verse smoothly, and capture the essence of the original lyrics, conveying the same emotions and meaning accurately.
@@ -33,18 +33,15 @@ tools = [
         "type": "function",
         "function": {
             "name": "translate_lyrics",
-            "description": "Please translate the given array of Japanese lyrics into both English and Chinese versions of the original lyrics, maintaining the same array length and capturing the context and tone of the original song accurately, and return a JSON object",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "english_lyrics": {
                         "type": "array",
-                        "description": "The translated English lyrics array, with the same length as the input array",
                         "items": {"type": "string"},
                     },
                     "chinese_lyrics": {
                         "type": "array",
-                        "description": "The translated Chinese lyrics array, with the same length as the input array",
                         "items": {"type": "string"},
                     },
                 },
@@ -61,6 +58,82 @@ class OpenAIService:
             api_key=os.getenv("OPENAI_KEY"),
         )
         self.MODEL = "gpt-4o"
+
+    def get_transcription(self, video_id):
+
+        ydl_opts = {
+            "match_filter": self.longer_than_eight_mins,
+            "format": "m4a/bestaudio/best",
+            "postprocessors": [
+                {  # Extract audio using ffmpeg
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "m4a",
+                }
+            ],
+            "outtmpl": "./output/track/%(id)s.%(ext)s",
+        }
+
+        # TODO: Clean up, only validate URL once across the process
+        full_vid_url = "https://www.youtube.com/watch?v=" + video_id
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            error_code = ydl.download(full_vid_url)
+            print("Audio download failed" if error_code else "Audio track downloaded")
+
+        audio_file_path = "./output/track/" + video_id + ".m4a"
+
+        with open(audio_file_path, "rb") as audio_file:
+
+            # TODO: Check whether this can guarantee good results, if not convert to function call
+            transcription = self.client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="ja",
+                # TODO: Rewrite prompt
+                prompt="""
+                あなたは日本語の歌詞を書き起こす専門家です。以下のガイドラインに従って、音声トラックから日本語の歌詞を正確に書き起こし、.srt形式で返してください:
+                1. 各行は自然な間で区切り、5〜7秒以内に収めてください。
+                2. 各タイムスタンプが音声に正確に対応し、曲の範囲内であることを確認してください。
+                3. 可能な限り正しい漢字を使用し、不明な場合は文脈に基づいて推測してください。
+
+                以下の例のように、.srt形式でタイムスタンプと歌詞の行のみを返してください。追加の応答やコメントは含めないでください。
+
+                例:
+                1
+                00:00:05,000 --> 00:00:10,000
+                今、静かな夜の中で
+
+                2
+                00:00:10,000 --> 00:00:15,000
+                無計画に車を走らせた
+
+                3
+                00:00:15,000 --> 00:00:20,000
+                左隣、あなたの
+
+                4
+                00:00:20,000 --> 00:00:25,000
+                横顔を月が照らした
+
+                音声トラックから正確に歌詞を転記し、.srt形式で返してください。
+                """,
+                response_format="srt",
+                timestamp_granularities=["segment"],
+            )
+
+            srt_save_path = f"./output/response_srt/{video_id}.srt"
+            with open(srt_save_path, "w", encoding="utf-8") as output_file:
+                output_file.write(transcription)
+
+        tbr_output = self.process_gpt_transcription(transcription)
+
+        print("GPT Transcription generated, processed, and saved successfully")
+
+        if tbr_output:
+
+            return tbr_output
+        else:
+            return "Failed to get transcription"
 
     def get_eng_translation(self, lyrics_arr, video_id):
 
@@ -126,67 +199,14 @@ class OpenAIService:
 
         return english_lyrics, chinese_lyrics
 
-    def get_transcription(self, video_id):
-
-        ydl_opts = {
-            "match_filter": self.longer_than_five_mins,
-            "format": "m4a/bestaudio/best",
-            "postprocessors": [
-                {  # Extract audio using ffmpeg
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "m4a",
-                }
-            ],
-            "outtmpl": "./output/track/%(id)s.%(ext)s",
-        }
-
-        #TODO: Clean up, only validate URL once across the process
-        full_vid_url = "https://www.youtube.com/watch?v=" + video_id
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            error_code = ydl.download(full_vid_url)
-            print(
-                "Audio download failed"
-                if error_code
-                else "Audio successfully downloaded"
-            )
-
-        audio_file_path = "./output/track/" + video_id + ".m4a"
-
-        with open(audio_file_path, "rb") as audio_file:
-            
-            #TODO: Check whether this can guarantee good results, if not convert to function call
-            transcription = self.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="ja",
-                #TODO: Rewrite prompt
-                prompt="日本語の歌を文章に書き起こしてください。歌詞を意味のある場所で改行し、各行は5~7秒以内にしてください。タイムスタンプは常に曲の範囲内である必要があります。可能な限り正しい漢字を推測して使用してください",
-                response_format="srt",
-                timestamp_granularities=["segment"],
-            )
-
-            srt_save_path = f"./output/response_srt/{video_id}.srt"
-            with open(srt_save_path, "w", encoding="utf-8") as output_file:
-                output_file.write(transcription)
-
-        tbr_output = self.process_gpt_transcription(transcription)
-
-        print("GPT Transcription generated, processed, and saved successfully")
-
-        if tbr_output:
-
-            return tbr_output
-        else:
-            return "Failed to get transcription"
-
-    #! Helper Functions
-    def longer_than_five_mins(self, info):
+    #! Helper Function - check video length
+    def longer_than_eight_mins(self, info):
         """Download only videos shorter than 5mins"""
         duration = info.get("duration")
-        if duration and duration > 300:
+        if duration and duration > 480:
             return "The video is too long"
 
+    #! Helper Function - process GPT Whisper transcription
     def process_gpt_transcription(self, gpt_output):
         # Process the transcription response from OpenAI
         lyrics = []

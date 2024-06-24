@@ -20,6 +20,11 @@ openai_service = OpenAIService()
 appwrite_service = AppwriteService()
 
 
+@app.route("/")
+def init_page():
+    return "Hey"
+
+
 @app.route("/progress-stream/<video_id>")
 def progress_stream(video_id):
     return
@@ -45,15 +50,20 @@ def transcription_endpoint():
         # TODO: Add check for whether youtube alr has lyrics, use those instead
         # ###
 
-        eng_translation, chi_translation = openai_service.get_eng_translation(lyrics_arr, video_id)
-        
+        eng_translation, chi_translation = openai_service.get_eng_translation(
+            lyrics_arr, video_id
+        )
+
         # romaji_lyrics = openai_service.get_romaji_lyrics(video_id, lyrics_arr, lyrics_len)
         # kanji_lyrics = openai_service.get_kanji_lyrics(video_id, lyrics_arr, lyrics_len)
 
         print("Translated finish sia")
         print(timestamped_lyrics)
+        print("Original Lyrics Len: " + str(len(lyrics_arr)))
         print(eng_translation)
+        print("Eng Translation Len: " + str(len(eng_translation)))
         print(chi_translation)
+        print("Chi Translation Len: " + str(len(chi_translation)))
 
         # output["full_lyrics"] = timestamped_lyrics
         # output["plain_lyrics"] = lyrics_arr
