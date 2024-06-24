@@ -51,7 +51,7 @@ def transcription_endpoint():
         # ###
 
         eng_translation, chi_translation = openai_service.get_eng_translation(
-            lyrics_arr, video_id
+            timestamped_lyrics, video_id
         )
 
         # romaji_lyrics = openai_service.get_romaji_lyrics(video_id, lyrics_arr, lyrics_len)

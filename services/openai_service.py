@@ -8,24 +8,51 @@ from termcolor import colored
 
 translation_setup_system_message = {
     "role": "system",
-    "content": """You are an expert translator with a deep understanding of Japanese lyrics, tasked with translating song lyrics into English and Chinese and returning them in JSON. The translations must be tonally consistent with the original song and capture the full context and emotion of the lyrics.
-    
-Requirements:
-1. The translated lyrics should form a complete and coherent narrative, connecting each verse smoothly, and capture the essence of the original lyrics, conveying the same emotions and meaning accurately.
-2. The output must be an array with the exact same length as the input array. For instance, if the input array has 30 lines, the output should also have 30 lines.
-3. Ensure each translated line corresponds to the same position in the array as the original, maintaining the same number of lines.
-4. If it is unavoidable to combine two lines into one, duplicate the resulting line to maintain the original number of lines.
-5. You should not provide any additional responses that are unrelated to the task of translating lyrics.
+    "content": """
+    You are an expert translator with a deep understanding of Japanese lyrics. Your task is to translate song lyrics into English and Chinese and return them in JSON. The translations must be tonally consistent with the original song and capture the full context and emotion of the lyrics.
 
-Example:
-Input: ["今、静かな夜の中で","無計画に車を走らせた","左隣、あなたの","横顔を月が照らした","ただ、思い出を探る様に","辿る様に言葉を繋ぎ合わせれば","どうしようもなく溢れてくる","日々の記憶","あなたのそばで生きると決めたその日から","少しずつ変わり始めた世界","強く在るように弱さを隠すように","演じてきた日々に","ある日突然現れたその眼差しが","知らなかったこと教えてくれた","守るべきものがあればそれだけで","こんなにも強くなれるんだ","深い深い暗闇の中で","出会い、共に過ごしてきた","類の無い日々","心地よかった","いや、幸せだった","確かにほら","救われたんだよ","あなたに","わずかな光を捉えて輝いたのは","まるで流れ星のような涙","不器用な命から流れて零れ落ちた","美しい涙","強く大きな体に秘めた優しさも","どこか苦しげなその顔も","愛しく思うんだ","姿形じゃないんだ","やっと気付いたんだ","無情に響く銃声が夜を引き裂く","別れの息吹が襲いかかる","刹那に輝いた無慈悲な流れ星","祈りはただ届かずに消えた","この、手の中で燃え尽きた","金色の優しい彗星を","美しいたてがみを","暗闇の中握り締めた"]
-Output: {
-    "english_lyrics": ["Now, in the quiet night","I drove the car aimlessly","To my left, you","Your profile illuminated by the moon","Just like searching for memories","If I piece together words","Uncontrollably overflowing","Memories of the days","Since the day I decided to live by your side","The world began to change little by little","Hiding my weakness to be strong","In the days I pretended","One day, suddenly, those eyes appeared","Taught me things I didn't know","As long as I have something to protect","I can become this strong","In the deep, deep darkness","We met and spent time together","Days unlike any other","They were comfortable","No, they were happy","Indeed, look","I was saved","By you","The faint light captured and shined","Like a shooting star, tears","Fell from a clumsy life","Beautiful tears","The kindness hidden in a strong, large body","And that slightly pained face","I find them dear","It's not about appearance","I finally realized","The merciless gunshot tears the night","The breath of farewell attacks","A merciless shooting star shining in an instant","The prayer just disappeared without reaching","In my hands, it burned out","The gentle golden comet","Its beautiful mane","I held tight in the darkness"
-],
-    "chinese_lyrics": ["现在，在宁静的夜晚","我毫无计划地开车","在我的左边，你","你的侧脸被月光照亮","就像在寻找回忆","如果我把话语拼凑起来","不受控制地涌现出来","那些日子的记忆","从我决定在你身边生活的那一天起","世界开始一点一点地改变","隐藏我的软弱来变得坚强","在我假装的日子里","有一天，突然，那双眼睛出现了","教会了我不知道的事情","只要有需要保护的东西","我就能变得这么强大","在深深的黑暗中","我们相遇并一起度过了","无与伦比的日子","那些日子很舒服","不，那些日子很幸福","确实，你看","我被你拯救了","我被你拯救了","那微弱的光被捕捉并闪耀着","像流星一样的眼泪","从笨拙的生命中流淌下来的","美丽的眼泪","隐藏在强大身体里的温柔","和那略带痛苦的脸","我觉得它们很可爱","这不是关于外表的","我终于意识到了","无情的枪声撕裂了夜晚","告别的气息袭来","刹那间闪耀的无情流星","祈祷没有传达就消失了","在我手中燃尽","温柔的金色彗星","它美丽的鬃毛","在黑暗中紧紧握住",
-],
-}
-    """,
+Requirements:
+1. Translate the lyrics to form a complete and coherent narrative, connecting each verse smoothly, and capture the essence of the original lyrics, conveying the same emotions and meaning accurately.
+2. Provide the output in .srt format with timestamps matching the original lyrics. Each translated line should have a corresponding line with the same timestamp.
+3. If it is unavoidable to combine two lines into one, duplicate the resulting line to maintain the original number of lines.
+4. Translate the full sentence properly, regardless of its length, ensuring it conveys the same meaning as the original.
+
+Example Input (Japanese Lyrics with Timestamps):
+1
+00:00:05,000 --> 00:00:10,000
+今、静かな夜の中で
+
+2
+00:00:10,000 --> 00:00:15,000
+無計画に車を走らせた
+
+3
+00:00:15,000 --> 00:00:20,000
+左隣、あなたの
+
+4
+00:00:20,000 --> 00:00:25,000
+横顔を月が照らした
+
+Example Output (English Lyrics in .srt format):
+1
+00:00:05,000 --> 00:00:10,000
+Now, in the quiet night
+
+2
+00:00:10,000 --> 00:00:15,000
+I drove the car aimlessly
+
+3
+00:00:15,000 --> 00:00:20,000
+To my left, you
+
+4
+00:00:20,000 --> 00:00:25,000
+Your profile illuminated by the moon
+
+Please translate the following Japanese lyrics into English and Chinese and return the translations in .srt format with matching timestamps.
+""",
 }
 
 tools = [
@@ -128,6 +155,8 @@ class OpenAIService:
         tbr_output = self.process_gpt_transcription(transcription)
 
         print("GPT Transcription generated, processed, and saved successfully")
+
+        #TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
 
         if tbr_output:
 
