@@ -111,44 +111,69 @@ class OpenAIService:
 
         with open(audio_file_path, "rb") as audio_file:
 
-            # TODO: Check whether this can guarantee good results, if not convert to function call
+            # TODO: change parameters to try to deal with fast songs
             transcription = self.client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
                 language="ja",
                 # TODO: Rewrite prompt
+                # prompt="""
+                # これは日本語の歌です。歌詞を正確に書き起こし、.srt形式で返してください。
+                # 各行は2〜5秒以内に収め、非常に速い歌詞の場合は1秒単位で区切ってください。
+                # 歌詞がない部分は「(間奏)」と表記してください。
+                # 追加の応答やコメントは含めないでください。
+                # """,
+                # response_format="verbose_json",
+                # timestamp_granularities=["word"],
                 prompt="""
                 あなたは日本語の歌詞を書き起こす専門家です。以下のガイドラインに従って、音声トラックから日本語の歌詞を正確に書き起こし、.srt形式で返してください:
-                1. 各行は自然な間で区切り、5〜7秒以内に収めてください。
+
+                1. 各行は自然な間で区切り、原則として2〜8秒以内に収めてください。歌詞が非常に速い場合は、1秒単位の短い区切りも許容します。
+
                 2. 各タイムスタンプが音声に正確に対応し、曲の範囲内であることを確認してください。
+
                 3. 可能な限り正しい漢字を使用し、不明な場合は文脈に基づいて推測してください。
 
-                以下の例のように、.srt形式でタイムスタンプと歌詞の行のみを返してください。追加の応答やコメントは含めないでください。
+                4. 非常に速いテンポの歌詞の場合、無理に長い文を作らず、意味のある単位で区切ってください。
 
+                5. アーティストが歌っている歌詞のみを含めてください。前奏、間奏、後奏などの楽器演奏のみの部分は含めないでください。
+
+                6. このプロンプトの例文や説明文を出力に含めないでください。アーティストが実際に歌っている歌詞のみを書き起こしてください。
+
+                7. 歌詞が始まる前や終わった後の無音や楽器演奏のみの部分は無視し、最初の歌詞から最後の歌詞までのみを書き起こしてください。
+
+                .srt形式でタイムスタンプと歌詞の行のみを返してください。追加の応答やコメント、このプロンプトからの例文は一切含めないでください。音声トラック内でアーティストが実際に歌っている歌詞のみを正確に転記してください。
+                
                 例:
                 1
-                00:00:05,000 --> 00:00:10,000
-                今、静かな夜の中で
-
+                00:00:00,000 --> 00:00:30,000
+                (前奏)
                 2
-                00:00:10,000 --> 00:00:15,000
-                無計画に車を走らせた
-
+                00:00:30,000 --> 00:00:33,000
+                今、静かな夜の中で
                 3
-                00:00:15,000 --> 00:00:20,000
-                左隣、あなたの
-
+                00:00:33,000 --> 00:00:36,000
+                無計画に車を
                 4
-                00:00:20,000 --> 00:00:25,000
+                00:00:36,000 --> 00:00:39,000
+                走らせた
+                5
+                00:00:39,000 --> 00:00:42,000
+                左隣、あなたの
+                6
+                00:00:42,000 --> 00:00:45,000
                 横顔を月が照らした
-
-                音声トラックから正確に歌詞を転記し、.srt形式で返してください。
+                7
+                00:00:45,000 --> 00:00:55,000
+                (間奏)
                 """,
                 response_format="srt",
                 timestamp_granularities=["segment"],
             )
 
             srt_save_path = f"./output/response_srt/{video_id}.srt"
+            print(transcription)
+            print("Above is transcription")
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
 
@@ -156,7 +181,7 @@ class OpenAIService:
 
         print("GPT Transcription generated, processed, and saved successfully")
 
-        #TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
+        # TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
 
         if tbr_output:
 
