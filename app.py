@@ -1,13 +1,14 @@
+import json
 import sys
+import os
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
 
-# from services.whisper_service import WhisperService
 from utils import utils
 
 load_dotenv()
@@ -16,7 +17,7 @@ sys.path.append("../")
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-openai_service = OpenAIService()
+openai_service = OpenAIService(api_key=os.getenv("OPENAI_KEY"))
 appwrite_service = AppwriteService()
 
 
@@ -25,9 +26,21 @@ def init_page():
     return "Hey"
 
 
-@app.route("/progress-stream/<video_id>")
-def progress_stream(video_id):
-    return
+# @app.route("/stream_conversation", methods=["POST"])
+@app.route("/stream_conversation")
+def stream_conversation():
+    def generate():
+
+        srt_path = "./output/response_srt/ZRtdQ81jPUQ.srt"
+
+        with open(srt_path, "r", encoding="utf-8") as file:
+            content = file.read()
+            transcription = openai_service.process_gpt_transcription(content)
+            response = openai_service.get_eng_translation_test(transcription)
+            for chunk in response:
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
 
 
 @app.route("/transcribe")
