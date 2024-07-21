@@ -1,6 +1,7 @@
 import json
 import sys
 import os
+import re
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response
@@ -49,44 +50,111 @@ def transcription_endpoint():
     query = request.args.get("q")
     video_id = utils.extract_video_id(query)
 
+    transcription = None
+
     if video_id:
-        transcription = openai_service.get_transcription(video_id)
+        # Check if an existing .srt file is available
+        srt_file_path = f"./output/response_srt/{video_id}.srt"
+        if os.path.exists(srt_file_path):
+            print("SRT file exists, using it... ")
+            with open(srt_file_path, "r", encoding="utf-8") as file:
+                # Read the .srt file content
+                srt_content = file.read()
+                # Process the existing transcription
+                transcription = openai_service.process_gpt_transcription(srt_content)
+            with open(srt_file_path, "w", encoding="utf-8") as file:
+                file.write(transcription["filtered_srt"])
+        else:
+            print("SRT file doesnt exist, transcribing...")
+            # Fetch new transcription and process it
+
+            # TODO: Make it re-try if detected all lyrics are same line >> probably errored out
+            raw_transcription = openai_service.get_transcription(video_id)
+            transcription = openai_service.process_gpt_transcription(raw_transcription)
+            with open(srt_file_path, "w", encoding="utf-8") as file:
+                file.write(transcription["filtered_srt"])
+
+        # ? New code to generate plain text file
+        txt_save_path = f"./output/response_srt/{video_id}_plain.txt"
+
+        try:
+            with open(srt_file_path, "r", encoding="utf-8") as srt_file, open(
+                txt_save_path, "w", encoding="utf-8"
+            ) as txt_file:
+                for line in srt_file:
+                    # Remove indexes, timestamps, and newlines
+                    if re.match(r"^\d+$", line) or re.match(
+                        r"^\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}$",
+                        line,
+                    ):
+                        continue  # Skip indexes and timestamps
+                    if line.strip():  # Check if the line is not empty
+                        txt_file.write(line)
+
+            print(f"Plain text lyrics saved to {txt_save_path}")
+        except Exception as e:
+            print(f"An error occurred while creating plain text file: {e}")
 
     if not transcription:
-        return jsonify("ERROR")
+        return jsonify("ERROR: No transcription available")
 
-    else:
-        lyrics_arr = transcription["lyrics"]
-        timestamped_lyrics = transcription["timestamped_lyrics"]
+    MAX_RETRIES = 3
+    retry_count = 0
 
-        # TODO: Add enhancer / quality check for lyrics in openai svc
-        # TODO: Add check for whether youtube alr has lyrics, use those instead
-        # ###
+    lyrics_arr = transcription["lyrics"]
+    timestamped_lyrics = transcription["timestamped_lyrics"]
 
-        eng_translation, chi_translation = openai_service.get_eng_translation(
-            timestamped_lyrics, video_id
-        )
+    eng_translation, chi_translation = None, None
 
-        # romaji_lyrics = openai_service.get_romaji_lyrics(video_id, lyrics_arr, lyrics_len)
-        # kanji_lyrics = openai_service.get_kanji_lyrics(video_id, lyrics_arr, lyrics_len)
+    # Make the retry mechanism change the temperature
+    while retry_count < MAX_RETRIES:
+        try:
+            eng_translation, chi_translation = openai_service.get_translations(
+                timestamped_lyrics, video_id
+            )
+            if eng_translation and chi_translation:
+                break  # Success, exit the loop
+        except ValueError as e:
+            print(f"Attempt {retry_count + 1} failed: {str(e)}")
+            retry_count += 1
+            if retry_count == MAX_RETRIES:
+                print("Max retries reached. Unable to get translations.")
+                # Handle the error (e.g., return an error response)
+            else:
+                print("Retrying #" + str(retry_count + 1) + "...")
 
+    if (
+        lyrics_arr is not None
+        and eng_translation is not None
+        and chi_translation is not None
+    ):
         print("Translated finish sia")
-        print(timestamped_lyrics)
         print("Original Lyrics Len: " + str(len(lyrics_arr)))
-        print(eng_translation)
         print("Eng Translation Len: " + str(len(eng_translation)))
-        print(chi_translation)
         print("Chi Translation Len: " + str(len(chi_translation)))
+    else:
+        return jsonify("ERROR: Translation failed")
 
-        # output["full_lyrics"] = timestamped_lyrics
-        # output["plain_lyrics"] = lyrics_arr
-        # output["eng_translation"] = eng_translation
-        # output["chi_translation"] = chi_translation
-        # output["romaji"] = romaji_lyrics
-        # output["kanji_annotation"] = kanji_lyrics
-        # output["visit_count"] = 0
+    romaji_lyrics = openai_service.get_romaji_lyrics(lyrics_arr, video_id)
+    kanji_annotations = openai_service.get_kanji_annotations(lyrics_arr, video_id)
 
-        return jsonify("DONE")
+    if (
+        eng_translation is None
+        or chi_translation is None
+        or romaji_lyrics is None
+        or kanji_annotations is None
+    ):
+        return jsonify("ERROR: Romaji annotation or kanji annotation failed")
+
+    return jsonify(
+        {
+            "lyrics": lyrics_arr,
+            "eng_translation": eng_translation,
+            "chi_translation": chi_translation,
+            "romaji_lyrics": romaji_lyrics,
+            "kanji_annotations": kanji_annotations,
+        }
+    )
 
 
 if __name__ == "__main__":

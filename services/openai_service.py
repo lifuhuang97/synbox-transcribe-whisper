@@ -2,22 +2,82 @@ import os
 import json
 from openai import OpenAI
 import yt_dlp
-from tenacity import retry, wait_random_exponential, stop_after_attempt
 from utils import utils
-from termcolor import colored
+
+transcription_filter_srt_array = [
+    "初音ミク",
+    "チャンネル登録",
+    "Illustration & Movie 天月",
+    "Vocal 天月",
+    "ご視聴ありがとうございました",
+    "サブタイトル キョウ",
+    "※音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。",
+    "※",
+    "【 】",
+    "µµµ",
+    "�",
+    " 歌詞のない部分は",
+]
+
+romaji_annotation_system_message = {
+    "role": "system",
+    "content": """
+    以下の要件に従って、日本語の歌詞をローマ字に変換するためのシステムプロンプトを作成してください：
+    各行をそのままローマ字に変換してください。外国語が検出された場合、その行をそのまま出力にコピーしてください。
+    出力の行数は入力の行数と一致させてください。
+    ローマ字は基本的にすべて小文字で記載し、特定の外国語や文脈で必要な場合のみ大文字を使用してください。また、句読点は適用する場合、そのまま保持してください。
+    
+    例：
+    入力：
+    こんにちは、世界！
+    this is a test
+    出力：
+    konnichiwa, sekai!
+    this is a test
+    
+    歌詞を以下の要件に従って変換してください。
+    """,
+}
+
+kanji_annotation_system_message = {
+    "role": "system",
+    "content": """
+    You are an expert in annotating Japanese song lyrics with the correct furigana pronunciations. Please follow the requirements below to add furigana to the lyrics:
+
+    Requirements:
+    1. Add furigana to each kanji character by placing the furigana in square brackets [] immediately after the kanji character.
+    2. If there are multiple consecutive kanji characters, include the furigana for all characters within a single set of square brackets. However, if individual furigana are needed for each kanji, place each furigana in its own set of square brackets immediately after the corresponding kanji character.
+    3. The output must have the same number of lines as the input. For example, if the input array has 30 lines, the output should also have 30 lines.
+    4. Do not include any additional system-related messages in the output, only the annotated lyrics.
+
+    Example:
+
+    Input:
+    彼女は笑った
+    美しい世界が見える
+
+    Output:
+    彼女[かのじょ]は笑[わら]った
+    美[うつく]しい世界[せかい]が見[み]える
+    """,
+}
 
 translation_setup_system_message = {
     "role": "system",
     "content": """
-    You are an expert translator with a deep understanding of Japanese lyrics. Your task is to translate song lyrics into English and Chinese and return them in JSON. The translations must be tonally consistent with the original song and capture the full context and emotion of the lyrics.
+You are an expert trilingual translator specializing in Japanese, English, and Chinese, with a deep understanding of song lyrics. Your task is to translate Japanese song lyrics into both English and Chinese, maintaining the poetic and expressive nature while ensuring clarity.
 
-Requirements:
-1. Translate the lyrics to form a complete and coherent narrative, connecting each verse smoothly, and capture the essence of the original lyrics, conveying the same emotions and meaning accurately.
-2. Provide the output in .srt format with timestamps matching the original lyrics. Each translated line should have a corresponding line with the same timestamp.
-3. If it is unavoidable to combine two lines into one, duplicate the resulting line to maintain the original number of lines.
-4. Translate the full sentence properly, regardless of its length, ensuring it conveys the same meaning as the original.
+Key requirements:
+1. Thoroughly read and understand the entire set of lyrics before translating to grasp the full context and ensure accurate meaning capture.
+2. The number of lines in both translations must exactly match the number of lines in the original Japanese lyrics.
+3. Translate to form a complete and coherent narrative, connecting verses smoothly while capturing the essence, emotions, and meaning of the original lyrics.
+4. If a sentence spans multiple lines, translate it properly as a whole, then repeat the translation across those lines to maintain the line count.
+5. Preserve any artistic elements like metaphors or wordplay as much as possible in both translations.
+6. If there's any english or chinese lyrics, keep these lines and translate them to/fro chinese and english respectively.
 
-Example Input (Japanese Lyrics with Timestamps):
+Return the translations in JSON format with two separate arrays: one for English and one for Chinese, each with the same number of elements as the input Japanese lyrics.
+
+Example Input:
 1
 00:00:05,000 --> 00:00:10,000
 今、静かな夜の中で
@@ -34,24 +94,23 @@ Example Input (Japanese Lyrics with Timestamps):
 00:00:20,000 --> 00:00:25,000
 横顔を月が照らした
 
-Example Output (English Lyrics in .srt format):
-1
-00:00:05,000 --> 00:00:10,000
-Now, in the quiet night
+Expected Output Format:
+{
+  "english_lyrics": [
+    "Now, in the quiet night",
+    "I drove the car aimlessly",
+    "To my left, you",
+    "Your profile illuminated by the moon"
+  ],
+  "chinese_lyrics": [
+    "此时此刻，在寂静的夜色中",
+    "漫无目的地驾着车",
+    "你坐在我的左侧",
+    "你的侧脸被月光照亮"
+  ]
+}
 
-2
-00:00:10,000 --> 00:00:15,000
-I drove the car aimlessly
-
-3
-00:00:15,000 --> 00:00:20,000
-To my left, you
-
-4
-00:00:20,000 --> 00:00:25,000
-Your profile illuminated by the moon
-
-Please translate the following Japanese lyrics into English and Chinese and return the translations in .srt format with matching timestamps.
+Translate the following Japanese lyrics into both English and Chinese, ensuring the output matches this format and maintains the exact number of lines as the input.
 """,
 }
 
@@ -73,6 +132,38 @@ tools = [
                     },
                 },
                 "required": ["english_lyrics", "chinese_lyrics"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_to_romaji",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "romaji": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["romaji"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "annotate_with_furigana",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "furigana_ann_lyrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["furigana_ann_lyrics"],
             },
         },
     },
@@ -124,49 +215,37 @@ class OpenAIService:
                 # response_format="verbose_json",
                 # timestamp_granularities=["word"],
                 prompt="""
-                あなたは日本語の歌詞を書き起こす専門家です。以下のガイドラインに従って、音声トラックから日本語の歌詞を正確に書き起こし、.srt形式で返してください:
+あなたは日本語の音声ファイルから日本語の歌詞を.srt形式で正確に書き起こす専門家です。以下の指示を守ってください：
 
-                1. 各行は自然な間で区切り、原則として2〜8秒以内に収めてください。歌詞が非常に速い場合は、1秒単位の短い区切りも許容します。
+1. 音声全体を連続的に書き起こしてください
+2. タイムスタンプを音声に正確に合わせてください
+3. 各行を10～15文字以内に収め、長い歌詞は複数行に分割してください
+4. 歌詞のない部分は (前奏)、(間奏)、(後奏)、(楽器演奏) と表記してください
+5. 歌詞のみを記載し、説明は省いてください
 
-                2. 各タイムスタンプが音声に正確に対応し、曲の範囲内であることを確認してください。
+例：
+1
+00:00:00,000 --> 00:00:18,000
+(前奏)
 
-                3. 可能な限り正しい漢字を使用し、不明な場合は文脈に基づいて推測してください。
+2
+00:00:20,000 --> 00:00:22,870
+いつの間にやら日付は変わって
 
-                4. 非常に速いテンポの歌詞の場合、無理に長い文を作らず、意味のある単位で区切ってください。
+3
+00:00:23,010 --> 00:00:26,450
+なんで年ってとるんだろう
 
-                5. アーティストが歌っている歌詞のみを含めてください。前奏、間奏、後奏などの楽器演奏のみの部分は含めないでください。
+4
+00:00:27,030 --> 00:00:32,780
+もう背は伸びないくせに
+...
 
-                6. このプロンプトの例文や説明文を出力に含めないでください。アーティストが実際に歌っている歌詞のみを書き起こしてください。
-
-                7. 歌詞が始まる前や終わった後の無音や楽器演奏のみの部分は無視し、最初の歌詞から最後の歌詞までのみを書き起こしてください。
-
-                .srt形式でタイムスタンプと歌詞の行のみを返してください。追加の応答やコメント、このプロンプトからの例文は一切含めないでください。音声トラック内でアーティストが実際に歌っている歌詞のみを正確に転記してください。
-                
-                例:
-                1
-                00:00:00,000 --> 00:00:30,000
-                (前奏)
-                2
-                00:00:30,000 --> 00:00:33,000
-                今、静かな夜の中で
-                3
-                00:00:33,000 --> 00:00:36,000
-                無計画に車を
-                4
-                00:00:36,000 --> 00:00:39,000
-                走らせた
-                5
-                00:00:39,000 --> 00:00:42,000
-                左隣、あなたの
-                6
-                00:00:42,000 --> 00:00:45,000
-                横顔を月が照らした
-                7
-                00:00:45,000 --> 00:00:55,000
-                (間奏)
+音声の最初から最後まで、すべての時間を漏らさず書き起こしてください
                 """,
                 response_format="srt",
                 timestamp_granularities=["segment"],
+                temperature=0.1,
             )
 
             srt_save_path = f"./output/response_srt/{video_id}.srt"
@@ -175,81 +254,100 @@ class OpenAIService:
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
 
-        tbr_output = self.process_gpt_transcription(transcription)
-
         print("GPT Transcription generated, processed, and saved successfully")
 
         # TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
 
-        if tbr_output:
-
-            return tbr_output
+        if transcription:
+            return transcription
         else:
             return "Failed to get transcription"
 
-    def get_eng_translation(self, lyrics_arr, video_id):
-
+    def get_translations(self, lyrics_arr, video_id):
         messages = [
             translation_setup_system_message,
-            {"role": "user", "content": json.dumps(lyrics_arr)},
+            {
+                "role": "user",
+                "content": f"Translate the following lyrics to English and Chinese. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
+            },
         ]
+        gpt_response = None
 
-        gpt_response = self.client.chat.completions.create(
-            model=self.MODEL,
-            messages=messages,
-            tools=tools,
-            temperature=0.9,
-            response_format={"type": "json_object"},
-            tool_choice={"type": "function", "function": {"name": "translate_lyrics"}},
-        )
+        try:
+            gpt_response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=messages,
+                tools=tools,
+                temperature=0,
+                response_format={"type": "json_object"},
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "translate_lyrics"},
+                },
+            )
 
-        print("This is response message in ENG translation")
-        print(gpt_response.choices[0])
+            # print("This is response message in ENG translation")
+            # print(gpt_response.choices[0])
 
-        if (
-            gpt_response.choices[0].message
-            and gpt_response.choices[0].message.tool_calls
-        ):
-            tool_call = gpt_response.choices[0].message.tool_calls[0]
-            if tool_call.function.name == "translate_lyrics":
-                function_response = tool_call.function.arguments
-                lyrics_response = json.loads(function_response)
-                english_lyrics = lyrics_response.get("english_lyrics", "")
-                chinese_lyrics = lyrics_response.get("chinese_lyrics", "")
+            # Check if there's a function call in the response
+            if gpt_response.choices[0].message.tool_calls:
+                function_call = gpt_response.choices[0].message.tool_calls[0].function
+                translations = json.loads(function_call.arguments)
             else:
-                raise ValueError("Unexpected function call in GPT response")
-        else:
-            raise ValueError("No function call found in GPT response")
+                print("In else block here in gpt tool calls check")
+                raise ValueError("No function call found in the response")
 
-        # Ensure the output directory exists
-        os.makedirs("./output/response_4o_translate/", exist_ok=True)
+            if not all(
+                key in translations for key in ["english_lyrics", "chinese_lyrics"]
+            ):
+                print("In check for all translations keys exists")
+                raise ValueError("Response is missing required keys")
 
-        # Define the output file paths
-        eng_output_file_path = f"./output/response_4o_translate/{video_id}_eng.json"
-        chi_output_file_path = f"./output/response_4o_translate/{video_id}_chi.json"
+            if len(translations["english_lyrics"]) != len(lyrics_arr) or len(
+                translations["chinese_lyrics"]
+            ) != len(lyrics_arr):
+                print("In check for length of translations dont work")
+                raise ValueError(
+                    f"Number of translated lines does not match the original. "
+                    f"Original: {len(lyrics_arr)}, English: {len(translations['english_lyrics'])}, "
+                    f"Chinese: {len(translations['chinese_lyrics'])}"
+                )
 
-        # Save the English lyrics to a JSON file
-        with open(eng_output_file_path, "w", encoding="utf-8") as eng_file:
-            json.dump(
-                {"english_lyrics": english_lyrics},
-                eng_file,
-                ensure_ascii=False,
-                indent=4,
+            # Ensure the output directory exists
+            output_dir = "./output/response_4o_translate/"
+            os.makedirs(output_dir, exist_ok=True)
+
+            for lang in ["english", "chinese"]:
+                # Save as JSON
+                json_file_path = f"{output_dir}{video_id}_{lang[:3]}.json"
+                with open(json_file_path, "w", encoding="utf-8") as file:
+                    json.dump(
+                        {f"{lang}_lyrics": translations[f"{lang}_lyrics"]},
+                        file,
+                        ensure_ascii=False,
+                        indent=4,
+                    )
+                print(f"{lang.capitalize()} lyrics saved to {json_file_path}")
+
+                # Save as TXT
+                txt_file_path = f"{output_dir}{video_id}_{lang[:3]}.txt"
+                with open(txt_file_path, "w", encoding="utf-8") as file:
+                    for line in translations[f"{lang}_lyrics"]:
+                        file.write(line + "\n")
+                print(f"{lang.capitalize()} lyrics saved to {txt_file_path}")
+
+            return translations["english_lyrics"], translations["chinese_lyrics"]
+
+        except Exception as e:
+            print(f"An error occurred in get_translations: {str(e)}")
+            print(
+                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
-
-        # Save the Chinese lyrics to a JSON file
-        with open(chi_output_file_path, "w", encoding="utf-8") as chi_file:
-            json.dump(
-                {"chinese_lyrics": chinese_lyrics},
-                chi_file,
-                ensure_ascii=False,
-                indent=4,
+            raise ValueError(
+                "Error in GPT response: " + str(gpt_response.choices[0])
+                if gpt_response
+                else "Unexpected error"
             )
-
-        print(f"English lyrics saved successfully to {eng_output_file_path}")
-        print(f"Chinese lyrics saved successfully to {chi_output_file_path}")
-
-        return english_lyrics, chinese_lyrics
 
     #! Helper Function - check video length
     def longer_than_eight_mins(self, info):
@@ -263,94 +361,211 @@ class OpenAIService:
         # Process the transcription response from OpenAI
         lyrics = []
         timestamped_lyrics = []
+        filtered_srt_content = []
 
         srt_blocks = gpt_output.strip().split("\n\n")
+
+        # Check for if majority of blocks have the same content
+        content_count = {}
         for block in srt_blocks:
+            lines = block.strip().split("\n")
+            if len(lines) >= 3:
+                content = " ".join(lines[2:])
+                content_count[content] = content_count.get(content, 0) + 1
+
+        most_common_content = max(content_count, key=content_count.get)
+        most_common_count = content_count[most_common_content]
+
+        if most_common_count / len(srt_blocks) >= 0.8:
+            raise ValueError(
+                "Error: 80% or more of the SRT blocks have the same content. The transcription model may have errored out."
+            )
+
+        for index, block in enumerate(srt_blocks, 1):
             lines = block.strip().split("\n")
             if len(lines) >= 3:
                 timestamp = lines[1]
                 lyric = " ".join(lines[2:])
-
-                lyrics.append(lyric)
-
                 start_time_str, end_time_str = timestamp.split(" --> ")
                 start_time = utils.convert_time_to_seconds(start_time_str)
                 end_time = utils.convert_time_to_seconds(end_time_str)
                 duration = round(end_time - start_time, 3)
 
-                timestamped_lyrics.append(
-                    {
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "duration": duration,
-                        "lyric": lyric,
-                    }
-                )
+                if (
+                    not any(
+                        exclude_str in lyric
+                        for exclude_str in transcription_filter_srt_array
+                    )
+                    and not (duration >= 30 and len(lyric) > 20)
+                    and not (len(lyric) > 50)
+                ):
 
-        return {"lyrics": lyrics, "timestamped_lyrics": timestamped_lyrics}
+                    lyrics.append(lyric)
+                    start_time_str, end_time_str = timestamp.split(" --> ")
+                    start_time = utils.convert_time_to_seconds(start_time_str)
+                    end_time = utils.convert_time_to_seconds(end_time_str)
+                    duration = round(end_time - start_time, 3)
 
-    @retry(
-        wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3)
-    )
-    def chat_completion_request(
-        self, messages, tools=None, tool_choice=None, model="gpt-4o"
-    ):
-        try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-            )
-            return response
-        except Exception as e:
-            print("Unable to generate ChatCompletion response")
-            print(f"Exception: {e}")
-            return e
+                    timestamped_lyrics.append(
+                        {
+                            "start_time": start_time,
+                            "end_time": end_time,
+                            "duration": duration,
+                            "lyric": lyric,
+                        }
+                    )
 
-    def pretty_print_conversation(self, messages):
-        role_to_color = {
-            "system": "red",
-            "user": "green",
-            "assistant": "blue",
-            "function": "magenta",
+                    filtered_srt_content.append(f"{index}\n{timestamp}\n{lyric}\n")
+
+        filtered_srt = "\n".join(filtered_srt_content)
+
+        return {
+            "lyrics": lyrics,
+            "timestamped_lyrics": timestamped_lyrics,
+            "filtered_srt": filtered_srt,
         }
 
-        for message in messages:
-            if message["role"] == "system":
-                print(
-                    colored(
-                        f"system: {message['content']}\n",
-                        role_to_color[message["role"]],
-                    )
+    def get_romaji_lyrics(self, lyrics_arr, video_id):
+        romaji_messages = [
+            romaji_annotation_system_message,
+            {
+                "role": "user",
+                "content": f"以下の日本語の歌詞をローマ字に変換してください。JSON形式で応答してください。歌詞: {json.dumps(lyrics_arr)}",
+            },
+        ]
+        gpt_response = None
+
+        try:
+            gpt_response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=romaji_messages,
+                tools=tools,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "convert_to_romaji"},
+                },
+            )
+
+            if gpt_response.choices[0].message.tool_calls:
+                function_call = gpt_response.choices[0].message.tool_calls[0].function
+                romaji_lyrics = json.loads(function_call.arguments)
+                print("Romaji fn: received gpt response")
+                print(gpt_response.choices[0].message.tool_calls)
+                print("Romaji fn: end of printing received gpt response")
+
+            else:
+                raise ValueError("No function call found in the response")
+
+            if "romaji" not in romaji_lyrics:
+                raise ValueError("Response is missing required keys")
+
+            if len(romaji_lyrics["romaji"]) != len(lyrics_arr):
+                raise ValueError(
+                    f"Number of Romaji lines does not match the original. "
+                    f"Original: {len(lyrics_arr)}, Romaji: {len(romaji_lyrics['romaji'])}"
                 )
-            elif message["role"] == "user":
-                print(
-                    colored(
-                        f"user: {message['content']}\n", role_to_color[message["role"]]
-                    )
+
+            # Ensure the output directory exists
+            output_dir = "./output/response_4o_translate/"
+            os.makedirs(output_dir, exist_ok=True)
+
+            json_file_path = f"{output_dir}{video_id}_romaji.json"
+            with open(json_file_path, "w", encoding="utf-8") as file:
+                json.dump(
+                    {"romaji_lyrics": romaji_lyrics["romaji"]},
+                    file,
+                    ensure_ascii=False,
+                    indent=4,
                 )
-            elif message["role"] == "assistant" and message.get("function_call"):
-                print(
-                    colored(
-                        f"assistant: {message['function_call']}\n",
-                        role_to_color[message["role"]],
-                    )
+            print(f"Romaji lyrics saved to {json_file_path}")
+
+            # Save as TXT
+            txt_file_path = f"{output_dir}{video_id}_romaji.txt"
+            with open(txt_file_path, "w", encoding="utf-8") as file:
+                for line in romaji_lyrics["romaji"]:
+                    file.write(line + "\n")
+            print(f"Romaji lyrics saved to {txt_file_path}")
+
+            return romaji_lyrics["romaji"]
+
+        except Exception as e:
+            print(f"An error occurred in get_romaji_lyrics: {str(e)}")
+            print(
+                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+            )
+            return None
+
+    def get_kanji_annotations(self, lyrics_arr, video_id):
+        kanji_messages = [
+            kanji_annotation_system_message,
+            {
+                "role": "user",
+                "content": f"Please annotate the following Japanese lyrics with furigana pronunciations. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
+            },
+        ]
+        gpt_response = None
+
+        try:
+            gpt_response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=kanji_messages,
+                tools=tools,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "annotate_with_furigana"},
+                },
+            )
+
+            if gpt_response.choices[0].message.tool_calls:
+                function_call = gpt_response.choices[0].message.tool_calls[0].function
+                kanji_annotations = json.loads(function_call.arguments)
+                print("Kanji fn: received results")
+                print(gpt_response.choices[0].message.tool_calls)
+            else:
+                raise ValueError("No function call found in the response")
+
+            if "furigana_ann_lyrics" not in kanji_annotations:
+                raise ValueError("Response is missing required keys")
+
+            if len(kanji_annotations["furigana_ann_lyrics"]) != len(lyrics_arr):
+                raise ValueError(
+                    f"Number of annotated lines does not match the original. "
+                    f"Original: {len(lyrics_arr)}, Annotated: {len(kanji_annotations['furigana_ann_lyrics'])}"
                 )
-            elif message["role"] == "assistant" and not message.get("function_call"):
-                print(
-                    colored(
-                        f"assistant: {message['content']}\n",
-                        role_to_color[message["role"]],
-                    )
+
+            # Ensure the output directory exists
+            output_dir = "./output/response_4o_translate/"
+            os.makedirs(output_dir, exist_ok=True)
+
+            json_file_path = f"{output_dir}{video_id}_kanji.json"
+            with open(json_file_path, "w", encoding="utf-8") as file:
+                json.dump(
+                    {"kanji_annotations": kanji_annotations["furigana_ann_lyrics"]},
+                    file,
+                    ensure_ascii=False,
+                    indent=4,
                 )
-            elif message["role"] == "function":
-                print(
-                    colored(
-                        f"function ({message['name']}): {message['content']}\n",
-                        role_to_color[message["role"]],
-                    )
-                )
+            print(f"Kanji annotations saved to {json_file_path}")
+
+            # Save as TXT
+            txt_file_path = f"{output_dir}{video_id}_kanji.txt"
+            with open(txt_file_path, "w", encoding="utf-8") as file:
+                for line in kanji_annotations["furigana_ann_lyrics"]:
+                    file.write(line + "\n")
+            print(f"Kanji annotations saved to {txt_file_path}")
+
+            return kanji_annotations["furigana_ann_lyrics"]
+
+        except Exception as e:
+            print(f"An error occurred in get_kanji_annotations: {str(e)}")
+            print(
+                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+            )
+            return None
 
     def stream_conversation_test(self):
 
@@ -385,7 +600,7 @@ class OpenAIService:
         return generate()
 
     def get_eng_translation_test(self, lyrics_arr):
-
+        # TODO: This is a test function for streaming, use it later
         print("This is lyrics arr")
         print(lyrics_arr)
 
@@ -401,7 +616,7 @@ class OpenAIService:
                 tools=tools,
                 stream=True,
                 stream_options={"include_usage": True},
-                temperature=0.9,
+                temperature=0,
                 response_format={"type": "json_object"},
                 tool_choice={
                     "type": "function",
