@@ -1,3 +1,4 @@
+import glob
 import json
 import sys
 import os
@@ -64,6 +65,60 @@ def validation_endpoint():
             "error_msg": error_msg,
         }
     )
+
+
+@app.route("/transcribev2")
+def transcription_endpoint_v2():
+    query = request.args.get("q")
+    video_id = utils.extract_video_id(query)
+    # ? Check for whether there was downloaded subtitles
+    subtitle_pattern = f"./output/track/{video_id}.ja.*"
+    subtitle_files = glob.glob(subtitle_pattern)
+
+    srt_file_path = f"./output/response_srt/{video_id}.srt"
+    if subtitle_files:
+        subtitle_file = subtitle_files[0]
+        _, ext = os.path.splitext(subtitle_file)
+        return subtitle_file
+
+    elif os.path.exists(srt_file_path):
+        print("SRT file exists, using it... ")
+        with open(srt_file_path, "r", encoding="utf-8") as file:
+            # Read the .srt file content
+            srt_content = file.read()
+            # Process the existing transcription
+            transcription = openai_service.process_gpt_transcription(srt_content)
+        with open(srt_file_path, "w", encoding="utf-8") as file:
+            file.write(transcription["filtered_srt"])
+    else:
+        # ? Audio file path
+        audio_path = f"./output/track/{video_id}.m4a"
+        raw_transcription = openai_service.get_transcription(video_id, audio_path)
+        transcription = openai_service.process_gpt_transcription(raw_transcription)
+        with open(srt_file_path, "w", encoding="utf-8") as file:
+            file.write(transcription["filtered_srt"])
+
+        # ? Create plain version of lyrics file
+        txt_save_path = f"./output/response_srt/{video_id}_plain.txt"
+        try:
+            with open(srt_file_path, "r", encoding="utf-8") as srt_file, open(
+                txt_save_path, "w", encoding="utf-8"
+            ) as txt_file:
+                for line in srt_file:
+                    # Remove indexes, timestamps, and newlines
+                    if re.match(r"^\d+$", line) or re.match(
+                        r"^\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}$",
+                        line,
+                    ):
+                        continue  # Skip indexes and timestamps
+                    if line.strip():  # Check if the line is not empty
+                        txt_file.write(line)
+
+            print(f"Plain text lyrics saved to {txt_save_path}")
+        except Exception as e:
+            print(f"An error occurred while creating plain text file: {e}")
+
+    return "Yo"
 
 
 @app.route("/transcribe")
