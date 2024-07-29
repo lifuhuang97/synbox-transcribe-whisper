@@ -44,6 +44,28 @@ def stream_conversation():
     return Response(generate(), mimetype="text/event-stream")
 
 
+@app.route("/validate")
+def validation_endpoint():
+    # http://localhost:8080/transcribe?q=https://www.youtube.com/watch?v=sK5KMI2Xu98
+    query = request.args.get("q")
+    video_id = utils.extract_video_id(query)
+
+    validated, audio_path, vid_info, validation_info, subtitle_info, error_msg = (
+        openai_service.validate_video(video_id)
+    )
+
+    return jsonify(
+        {
+            "validated": validated,
+            "audio_path": audio_path,
+            "vid_info": vid_info,
+            "validation_info": validation_info,
+            "subtitle_info": subtitle_info,
+            "error_msg": error_msg,
+        }
+    )
+
+
 @app.route("/transcribe")
 def transcription_endpoint():
     # http://localhost:8080/transcribe?q=https://www.youtube.com/watch?v=sK5KMI2Xu98
@@ -158,4 +180,4 @@ def transcription_endpoint():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

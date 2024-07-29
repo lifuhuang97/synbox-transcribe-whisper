@@ -1,4 +1,5 @@
 import os
+import glob
 import json
 from openai import OpenAI
 import yt_dlp
@@ -17,6 +18,10 @@ transcription_filter_srt_array = [
     "µµµ",
     "�",
     " 歌詞のない部分は",
+    "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
+    "ªªªªªªªªªªªªªªªªªªªªª",
+    "🥀🥀🥀🥀",
+    "🐻",
 ]
 
 romaji_annotation_system_message = {
@@ -114,6 +119,13 @@ Translate the following Japanese lyrics into both English and Chinese, ensuring 
 """,
 }
 
+validate_youtube_video_system_message = {
+    "role": "system",
+    "content": """
+    I will give you the relevant details of a youtube video in JSON format. Help me analyze whether the given details can tell you with extremely high certainty that the video is a video of a Japanese song or a Japanese music video of a song, nothing else. Reply with 1 character only and nothing else (Y / N) to represent your judgment.
+    """,
+}
+
 tools = [
     {
         "type": "function",
@@ -167,6 +179,21 @@ tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "validate_music_video",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "decision": {
+                        "type": "string",
+                    },
+                },
+                "required": ["decision"],
+            },
+        },
+    },
 ]
 
 
@@ -175,11 +202,18 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         self.MODEL = "gpt-4o"
 
-    def get_transcription(self, video_id):
+    def validate_video(self, video_id):
+
+        passed = False
 
         ydl_opts = {
             "match_filter": self.longer_than_eight_mins,
             "format": "m4a/bestaudio/best",
+            "writesubtitles": True,
+            "subtitlesformat": "vtt/srt/ass/ssa",
+            "subtitleslangs": ["ja"],
+            "break_on_reject": True,
+            "writeinfojson": True,
             "postprocessors": [
                 {  # Extract audio using ffmpeg
                     "key": "FFmpegExtractAudio",
@@ -191,12 +225,91 @@ class OpenAIService:
 
         # TODO: Clean up, only validate URL once across the process
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            error_code = ydl.download(full_vid_url)
-            print("Audio download failed" if error_code else "Audio track downloaded")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                error_code = ydl.download(full_vid_url)
+                print(
+                    "Audio download failed" if error_code else "Audio track downloaded"
+                )
+        except Exception as e:
+            error_msg = str(e)
+            print(f"An error occurred in validate_video: {error_msg}")
+            return (
+                False,
+                None,
+                None,
+                None,
+                {"exist": False, "path": None, "ext": None},
+                error_msg,
+            )
 
         audio_file_path = "./output/track/" + video_id + ".m4a"
+        info_file_path = "./output/track/" + video_id + ".info.json"
+
+        with open(info_file_path, "r", encoding="utf-8") as file:
+            vid_info = file.read()
+            json_vid_info = json.loads(vid_info)
+            thumbnail = json_vid_info.get("thumbnail")
+            views = json_vid_info.get("view_count")
+            likes = json_vid_info.get("like_count")
+            playable_in_embed = json_vid_info.get("playable_in_embed")
+            title = json_vid_info.get("fulltitle", json_vid_info.get("title"))
+            categories = json_vid_info.get("categories", [])
+            description = json_vid_info.get("description")
+            channel_name = json_vid_info.get("channel")
+            uploader = json_vid_info.get("uploader")
+            language = json_vid_info.get("language")
+
+            full_vid_info = {
+                "thumbnail": thumbnail,
+                "views": views,
+                "likes": likes,
+                "playable_in_embed": playable_in_embed,
+                # ? For AI analysis
+                "title": title,
+                "categories": categories,
+                "description": description,
+                "channel_name": channel_name,
+                "uploader": uploader,
+                "language": language,
+            }
+
+            vid_info_for_validation = {
+                "title": title,
+                "categories": categories,
+                "description": description,
+                "channel_name": channel_name,
+                "uploader": uploader,
+                "language": language,
+            }
+
+        subtitle_info = {
+            "exist": False,
+            "path": None,
+            "ext": None,
+        }
+        subtitle_pattern = f"./output/track/{video_id}.*.*"
+        subtitle_files = glob.glob(subtitle_pattern)
+        if subtitle_files:
+            subtitle_info["exist"] = True
+            subtitle_file = subtitle_files[0]
+            subtitle_info["path"] = subtitle_file
+            _, ext = os.path.splitext(subtitle_file)
+            subtitle_info["ext"] = ext
+
+        passed = self.validate_youtube_video(vid_info_for_validation)
+
+        return (
+            passed,
+            audio_file_path,
+            full_vid_info,
+            vid_info_for_validation,
+            subtitle_info,
+            None,
+        )
+
+    def get_transcription(self, video_id, audio_file_path):
+        # subtitle_file_path = "./output/track/" + video_id + ".ja.vtt"
 
         with open(audio_file_path, "rb") as audio_file:
 
@@ -214,6 +327,28 @@ class OpenAIService:
                 # """,
                 # response_format="verbose_json",
                 # timestamp_granularities=["word"],
+                #                 prompt="""あなたは日本語の音声ファイルから日本語の歌詞を.srt形式で正確に書き起こす専門家です。以下の指示を守ってください：
+                # 1. 音声全体を連続的に書き起こしてくださいが、歌詞のない部分にはタイムスタンプと空白を残してください。
+                # 2. タイムスタンプを音声に正確に合わせてください。歌詞がない部分に歌詞を埋め込まないでください。
+                # 3. 各行を10~15文字以内に収め、長い歌詞は複数行に分割してください。
+                # 4. 歌詞のない部分は (前奏)、(間奏)、(後奏) と表記してください。
+                # 5. 歌詞のみを記載し、説明は省いてください。
+                # 例：
+                # 1
+                # 00:00:00,000 --> 00:00:18,000
+                # (前奏)
+                # 2
+                # 00:00:20,000 --> 00:00:22,870
+                # いつの間にやら日付は変わって
+                # 3
+                # 00:00:23,010 --> 00:00:26,450
+                # なんで年ってとるんだろう
+                # 4
+                # 00:00:27,030 --> 00:00:32,780
+                # もう背は伸びないくせに
+                # ...
+                # 音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。
+                # 歌詞がない場合は適切に空白を保持してください。""",
                 prompt="""
 あなたは日本語の音声ファイルから日本語の歌詞を.srt形式で正確に書き起こす専門家です。以下の指示を守ってください：
 
@@ -242,10 +377,10 @@ class OpenAIService:
 ...
 
 音声の最初から最後まで、すべての時間を漏らさず書き起こしてください
-                """,
+""",
                 response_format="srt",
                 timestamp_granularities=["segment"],
-                temperature=0.1,
+                temperature=0.8,
             )
 
             srt_save_path = f"./output/response_srt/{video_id}.srt"
@@ -278,7 +413,7 @@ class OpenAIService:
                 model=self.MODEL,
                 messages=messages,
                 tools=tools,
-                temperature=0,
+                temperature=0.8,
                 response_format={"type": "json_object"},
                 tool_choice={
                     "type": "function",
@@ -424,6 +559,54 @@ class OpenAIService:
             "timestamped_lyrics": timestamped_lyrics,
             "filtered_srt": filtered_srt,
         }
+
+    def validate_youtube_video(self, video_info):
+        validation_msg = [
+            validate_youtube_video_system_message,
+            {
+                "role": "user",
+                "content": json.dumps(video_info),
+            },
+        ]
+        gpt_response = None
+
+        try:
+            gpt_response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=validation_msg,
+                tools=tools,
+                temperature=0,
+                response_format={"type": "json_object"},
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "validate_music_video"},
+                },
+            )
+
+            if gpt_response.choices[0].message.tool_calls:
+                function_call = gpt_response.choices[0].message.tool_calls[0].function
+                verdict = json.loads(function_call.arguments)
+            else:
+                raise ValueError("No function call found in the response")
+
+            if "decision" not in verdict:
+                raise ValueError("Response is missing required keys")
+
+            # print("This is decision")
+            # print(verdict["decision"])
+
+            affirmative_responses = {"y", "yes"}
+            if verdict["decision"].strip().lower() in affirmative_responses:
+                return True
+            else:
+                return False
+
+        except Exception as e:
+            print(f"An error occurred in validate_youtube_video: {str(e)}")
+            print(
+                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+            )
+            return None
 
     def get_romaji_lyrics(self, lyrics_arr, video_id):
         romaji_messages = [
@@ -580,7 +763,7 @@ class OpenAIService:
                         "content": "Write me a 10 line poem about a sunset, separated into multiple lines in the response",
                     },
                 ],
-                temperature=0,
+                temperature=0.2,
                 stream=True,
                 stream_options={"include_usage": True},
             )
