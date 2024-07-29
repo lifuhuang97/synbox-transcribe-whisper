@@ -1,4 +1,10 @@
 FROM python:3.11
+
+
+# Install ffmpeg and ffprobe
+RUN apt-get update && apt-get install -y ffmpeg
+
+
 WORKDIR /app
 
 COPY requirements.txt .
