@@ -205,6 +205,7 @@ class OpenAIService:
     def validate_video(self, video_id):
 
         passed = False
+        error_msg = None
 
         ydl_opts = {
             "match_filter": self.longer_than_eight_mins,
@@ -223,17 +224,24 @@ class OpenAIService:
             "outtmpl": "./output/track/%(id)s.%(ext)s",
         }
 
-        # TODO: Clean up, only validate URL once across the process
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 error_code = ydl.download(full_vid_url)
-                print(
-                    "Audio download failed" if error_code else "Audio track downloaded"
-                )
+                if error_code:
+                    error_msg = "Audio download failed"
+                    print(error_msg)
+                    return (
+                        False,
+                        None,
+                        None,
+                        None,
+                        {"exist": False, "path": None, "ext": None},
+                        error_msg,
+                    )
+                print("Audio track downloaded")
         except Exception as e:
-            error_msg = str(e)
-            print(f"An error occurred in validate_video: {error_msg}")
+            error_msg = f"An error occurred during video download: {str(e)}"
             return (
                 False,
                 None,
@@ -246,50 +254,62 @@ class OpenAIService:
         audio_file_path = "./output/track/" + video_id + ".m4a"
         info_file_path = "./output/track/" + video_id + ".info.json"
 
-        with open(info_file_path, "r", encoding="utf-8") as file:
-            vid_info = file.read()
-            json_vid_info = json.loads(vid_info)
-            thumbnail = json_vid_info.get("thumbnail")
-            duration = json_vid_info.get("duration")
-            views = json_vid_info.get("view_count")
-            likes = json_vid_info.get("like_count")
-            playable_in_embed = json_vid_info.get("playable_in_embed")
-            title = json_vid_info.get("fulltitle", json_vid_info.get("title"))
-            categories = json_vid_info.get("categories", [])
-            description = json_vid_info.get("description")
-            channel_name = json_vid_info.get("channel")
-            uploader = json_vid_info.get("uploader")
-            language = json_vid_info.get("language")
+        try:
+            with open(info_file_path, "r", encoding="utf-8") as file:
+                json_vid_info = json.load(file)
+        except Exception as e:
+            error_msg = f"Error reading video info: {str(e)}"
+            return (
+                False,
+                None,
+                None,
+                None,
+                {"exist": False, "path": None, "ext": None},
+                error_msg,
+            )
 
-            full_vid_info = {
-                "thumbnail": thumbnail,
-                "views": views,
-                "duration": duration,
-                "likes": likes,
-                "playable_in_embed": playable_in_embed,
-                # ? For AI analysis
-                "title": title,
-                "categories": categories,
-                "description": description,
-                "channel_name": channel_name,
-                "uploader": uploader,
-                "language": language,
-            }
+        thumbnail = json_vid_info.get("thumbnail")
+        duration = json_vid_info.get("duration")
+        views = json_vid_info.get("view_count")
+        likes = json_vid_info.get("like_count")
+        playable_in_embed = json_vid_info.get("playable_in_embed")
+        title = json_vid_info.get("fulltitle", json_vid_info.get("title"))
+        categories = json_vid_info.get("categories", [])
+        description = json_vid_info.get("description")
+        channel_name = json_vid_info.get("channel")
+        uploader = json_vid_info.get("uploader")
+        language = json_vid_info.get("language")
 
-            vid_info_for_validation = {
-                "title": title,
-                "categories": categories,
-                "description": description,
-                "channel_name": channel_name,
-                "uploader": uploader,
-                "language": language,
-            }
+        full_vid_info = {
+            "thumbnail": thumbnail,
+            "views": views,
+            "duration": duration,
+            "likes": likes,
+            "playable_in_embed": playable_in_embed,
+            # ? For AI analysis
+            "title": title,
+            "categories": categories,
+            "description": description,
+            "channel_name": channel_name,
+            "uploader": uploader,
+            "language": language,
+        }
+
+        vid_info_for_validation = {
+            "title": title,
+            "categories": categories,
+            "description": description,
+            "channel_name": channel_name,
+            "uploader": uploader,
+            "language": language,
+        }
 
         subtitle_info = {
             "exist": False,
             "path": None,
             "ext": None,
         }
+
         subtitle_pattern = f"./output/track/{video_id}.*.*"
         subtitle_files = glob.glob(subtitle_pattern)
         if subtitle_files:
@@ -299,7 +319,23 @@ class OpenAIService:
             _, ext = os.path.splitext(subtitle_file)
             subtitle_info["ext"] = ext
 
-        passed = self.validate_youtube_video(vid_info_for_validation)
+        if not playable_in_embed:
+            error_msg = "Video is not playable outside of YouTube"
+            return (
+                False,
+                audio_file_path,
+                full_vid_info,
+                vid_info_for_validation,
+                subtitle_info,
+                error_msg,
+            )
+
+        if language == "ja" and "Music" in categories:
+            passed = True
+        else:
+            passed = self.validate_youtube_video(vid_info_for_validation)
+            if not passed:
+                error_msg = "This video is not a Japanese music video"
 
         return (
             passed,
@@ -307,7 +343,7 @@ class OpenAIService:
             full_vid_info,
             vid_info_for_validation,
             subtitle_info,
-            None,
+            error_msg,
         )
 
     def get_transcription(self, video_id, audio_file_path):
