@@ -250,6 +250,7 @@ class OpenAIService:
             vid_info = file.read()
             json_vid_info = json.loads(vid_info)
             thumbnail = json_vid_info.get("thumbnail")
+            duration = json_vid_info.get("duration")
             views = json_vid_info.get("view_count")
             likes = json_vid_info.get("like_count")
             playable_in_embed = json_vid_info.get("playable_in_embed")
@@ -263,6 +264,7 @@ class OpenAIService:
             full_vid_info = {
                 "thumbnail": thumbnail,
                 "views": views,
+                "duration": duration,
                 "likes": likes,
                 "playable_in_embed": playable_in_embed,
                 # ? For AI analysis
