@@ -47,24 +47,34 @@ def stream_conversation():
 
 @app.route("/validate")
 def validation_endpoint():
-    # http://localhost:8080/transcribe?q=https://www.youtube.com/watch?v=sK5KMI2Xu98
-    query = request.args.get("q")
-    video_id = utils.extract_video_id(query)
+    # http://localhost:8080/validate?q=https://www.youtube.com/watch?v=sK5KMI2Xu98
+    try:
+        # Extract the query parameter
+        query = request.args.get("q")
+        video_id = utils.extract_video_id(query)
 
-    validated, audio_path, vid_info, validation_info, subtitle_info, error_msg = (
-        openai_service.validate_video(video_id)
-    )
+        # Validate the video and get the necessary information
+        validated, audio_path, vid_info, validation_info, subtitle_info, error_msg = (
+            openai_service.validate_video(video_id)
+        )
 
-    return jsonify(
-        {
-            "validated": validated,
-            "audio_path": audio_path,
-            "vid_info": vid_info,
-            "validation_info": validation_info,
-            "subtitle_info": subtitle_info,
-            "error_msg": error_msg,
-        }
-    )
+        # Return the JSON response
+        return (
+            jsonify(
+                {
+                    "validated": validated,
+                    "audio_path": audio_path,
+                    "vid_info": vid_info,
+                    "validation_info": validation_info,
+                    "subtitle_info": subtitle_info,
+                    "error_msg": error_msg,
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        # Return a JSON response in case of an error
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/transcribev2")
