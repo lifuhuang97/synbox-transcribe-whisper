@@ -281,6 +281,7 @@ class OpenAIService:
         language = json_vid_info.get("language")
 
         full_vid_info = {
+            "id": video_id,
             "thumbnail": thumbnail,
             "views": views,
             "duration": duration,
@@ -310,7 +311,7 @@ class OpenAIService:
             "ext": None,
         }
 
-        subtitle_pattern = f"./output/track/{video_id}.*.*"
+        subtitle_pattern = f"./output/track/{video_id}.ja.*"
         subtitle_files = glob.glob(subtitle_pattern)
         if subtitle_files:
             subtitle_info["exist"] = True
