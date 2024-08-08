@@ -1,5 +1,26 @@
+import json
 import re
 from urllib.parse import urlparse, parse_qs
+from typing import List, Dict, Any
+
+transcription_filter_srt_array = [
+    "初音ミク",
+    "チャンネル登録",
+    "Illustration & Movie 天月",
+    "Vocal 天月",
+    "ご視聴ありがとうございました",
+    "サブタイトル キョウ",
+    "※音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。",
+    "※",
+    "【 】",
+    "µµµ",
+    "�",
+    " 歌詞のない部分は",
+    "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
+    "ªªªªªªªªªªªªªªªªªªªªª",
+    "🥀🥀🥀🥀",
+    "🐻",
+]
 
 
 # ? General Utils
@@ -74,32 +95,126 @@ def convert_time_to_seconds(time_str: str) -> float:
     return total_seconds
 
 
-def process_gpt_transcription(srt_content):
-    # Process the transcription response from OpenAI
-    lyrics = []
-    timestamped_lyrics = []
+def process_subtitle_file(
+    file_path: str,
+    file_format: str,
+    exclude_strings: List[str] = transcription_filter_srt_array,
+    max_duration: float = 30,
+    max_lyric_length: int = 20,
+    apply_error_checks: bool = False,
+) -> Dict[str, Any]:
 
-    srt_blocks = srt_content.strip().split("\n\n")
-    for block in srt_blocks:
-        lines = block.strip().split("\n")
-        if len(lines) >= 3:
-            timestamp = lines[1]
-            lyric = " ".join(lines[2:])
+    def parse_time(time_str: str) -> float:
+        if "," in time_str:  # SRT format
+            time_str = time_str.replace(",", ".")
+        elif "." not in time_str:  # ASS/SSA format
+            time_str += ".000"
+        h, m, s = time_str.split(":")
+        return float(h) * 3600 + float(m) * 60 + float(s)
 
-            lyrics.append(lyric)
+    def process_subtitle(content: str, subtitle_format: str) -> List[Dict[str, Any]]:
+        timestamped_lyrics = []
 
-            start_time_str, end_time_str = timestamp.split(" --> ")
-            start_time = convert_time_to_seconds(start_time_str)
-            end_time = convert_time_to_seconds(end_time_str)
-            duration = end_time - start_time
+        if subtitle_format == "srt":
+            pattern = r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)\n((?:.+\n?)+)"
+        elif subtitle_format == "vtt":
+            pattern = r"(\d+:\d+:\d+\.\d+) --> (\d+:\d+:\d+\.\d+)\n((?:.+\n?)+)"
+        elif subtitle_format in ["ass", "ssa"]:
+            pattern = r"Dialogue: [^,]*,(\d+:\d+:\d+\.\d+),(\d+:\d+:\d+\.\d+),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)"
+        else:
+            raise ValueError(f"Unsupported subtitle format: {subtitle_format}")
 
-            timestamped_lyrics.append(
-                {
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "duration": duration,
-                    "lyric": lyric,
-                }
+        for match in re.finditer(pattern, content, re.MULTILINE):
+            start_time = round(parse_time(match.group(1)), 3)
+            end_time = round(parse_time(match.group(2)), 3)
+            lyric = match.group(3).strip().replace("\n", " ")
+
+            duration = round(end_time - start_time, 3)
+
+            if not apply_error_checks or (
+                not any(exclude_str in lyric for exclude_str in exclude_strings)
+                and not (duration >= max_duration and len(lyric) > 20)
+                and not (len(lyric) > max_lyric_length)
+            ):
+                if (
+                    len(lyric) > max_lyric_length and " " in lyric
+                ):  # Check if there is a space
+                    # Split long lyrics into multiple SRT blocks
+                    words = lyric.split()
+                    current_line = ""
+                    lines = []
+                    for word in words:
+                        if len(current_line) + len(word) + 1 > max_lyric_length:
+                            lines.append(current_line)
+                            current_line = word
+                        else:
+                            if current_line:
+                                current_line += " "
+                            current_line += word
+                    if current_line:
+                        lines.append(current_line)
+
+                    split_duration = duration / len(lines)
+                    for i, line in enumerate(lines):
+                        new_start_time = round(start_time + i * split_duration, 3)
+                        new_end_time = round(start_time + (i + 1) * split_duration, 3)
+                        timestamped_lyrics.append(
+                            {
+                                "start_time": new_start_time,
+                                "end_time": new_end_time,
+                                "duration": round(new_end_time - new_start_time, 3),
+                                "lyric": line,
+                            }
+                        )
+                else:
+                    timestamped_lyrics.append(
+                        {
+                            "start_time": start_time,
+                            "end_time": end_time,
+                            "duration": duration,
+                            "lyric": lyric,
+                        }
+                    )
+
+        return timestamped_lyrics
+
+    # Read file content
+    with open(file_path, "r", encoding="utf-8") as file:
+        content = file.read()
+
+    # Process subtitles
+    timestamped_lyrics = process_subtitle(content, file_format)
+
+    # Check for repeated content if apply_error_checks is True
+    if apply_error_checks:
+        content_count = {}
+        for item in timestamped_lyrics:
+            content = item["lyric"]
+            content_count[content] = content_count.get(content, 0) + 1
+
+        most_common_content = max(content_count, key=content_count.get)
+        most_common_count = content_count[most_common_content]
+
+        if most_common_count / len(timestamped_lyrics) >= 0.8:
+            raise ValueError(
+                "Error: 80% or more of the subtitle blocks have the same content. The transcription may have errored out."
             )
 
-    return {"lyrics": lyrics, "timestamped_lyrics": timestamped_lyrics}
+    # Generate other required outputs
+    lyrics = [item["lyric"] for item in timestamped_lyrics]
+    filtered_srt = "\n\n".join(
+        [
+            f"{i + 1}\n{item['start_time']:.3f} --> {item['end_time']:.3f}\n{item['lyric']}"
+            for i, item in enumerate(timestamped_lyrics)
+        ]
+    )
+
+    return {
+        "lyrics": lyrics,
+        "timestamped_lyrics": timestamped_lyrics,
+        "filtered_srt": filtered_srt,
+    }
+
+
+def stream_message(type: str, data: str):
+    return json.dumps({"type": type, "data": data}) + "\n"

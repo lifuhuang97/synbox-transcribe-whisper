@@ -3,26 +3,7 @@ import glob
 import json
 from openai import OpenAI
 import yt_dlp
-from utils import utils
-
-transcription_filter_srt_array = [
-    "初音ミク",
-    "チャンネル登録",
-    "Illustration & Movie 天月",
-    "Vocal 天月",
-    "ご視聴ありがとうございました",
-    "サブタイトル キョウ",
-    "※音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。",
-    "※",
-    "【 】",
-    "µµµ",
-    "�",
-    " 歌詞のない部分は",
-    "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
-    "ªªªªªªªªªªªªªªªªªªªªª",
-    "🥀🥀🥀🥀",
-    "🐻",
-]
+from utils import utils, stream_message
 
 romaji_annotation_system_message = {
     "role": "system",
@@ -43,7 +24,6 @@ romaji_annotation_system_message = {
     歌詞を以下の要件に従って変換してください。
     """,
 }
-
 kanji_annotation_system_message = {
     "role": "system",
     "content": """
@@ -66,7 +46,6 @@ kanji_annotation_system_message = {
     美[うつく]しい世界[せかい]が見[み]える
     """,
 }
-
 translation_setup_system_message = {
     "role": "system",
     "content": """
@@ -118,14 +97,12 @@ Expected Output Format:
 Translate the following Japanese lyrics into both English and Chinese, ensuring the output matches this format and maintains the exact number of lines as the input.
 """,
 }
-
 validate_youtube_video_system_message = {
     "role": "system",
     "content": """
     I will give you the relevant details of a youtube video in JSON format. Help me analyze whether the given details can tell you with extremely high certainty that the video is a video of a Japanese song or a Japanese music video of a song, nothing else. Reply with 1 character only and nothing else (Y / N) to represent your judgment.
     """,
 }
-
 tools = [
     {
         "type": "function",
@@ -203,9 +180,14 @@ class OpenAIService:
         self.MODEL = "gpt-4o"
 
     def validate_video(self, video_id):
-
-        passed = False
-        error_msg = None
+        result = {
+            "passed": False,
+            "audio_file_path": None,
+            "full_vid_info": None,
+            "vid_info_for_validation": None,
+            "subtitle_info": {"exist": False, "path": None, "ext": None},
+            "error_msg": None,
+        }
 
         ydl_opts = {
             "match_filter": self.longer_than_eight_mins,
@@ -225,127 +207,88 @@ class OpenAIService:
         }
 
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 error_code = ydl.download(full_vid_url)
                 if error_code:
-                    error_msg = "Audio download failed"
-                    print(error_msg)
-                    return (
-                        False,
-                        None,
-                        None,
-                        None,
-                        {"exist": False, "path": None, "ext": None},
-                        error_msg,
-                    )
-                print("Audio track downloaded")
+                    result["error_msg"] = "Audio download failed"
+                    yield stream_message("error", result["error_msg"])
+                    yield stream_message("data", result)
+                    return
+                yield stream_message("update", "Audio track downloaded")
         except Exception as e:
-            error_msg = f"An error occurred during video download: {str(e)}"
-            return (
-                False,
-                None,
-                None,
-                None,
-                {"exist": False, "path": None, "ext": None},
-                error_msg,
-            )
+            result["error_msg"] = f"An error occurred during video download: {str(e)}"
+            yield stream_message("error", result["error_msg"])
+            yield stream_message("vid_info", result)
+            return
 
-        audio_file_path = "./output/track/" + video_id + ".m4a"
+        result["audio_file_path"] = "./output/track/" + video_id + ".m4a"
         info_file_path = "./output/track/" + video_id + ".info.json"
 
         try:
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
         except Exception as e:
-            error_msg = f"Error reading video info: {str(e)}"
-            return (
-                False,
-                None,
-                None,
-                None,
-                {"exist": False, "path": None, "ext": None},
-                error_msg,
-            )
+            result["error_msg"] = f"Error reading video info: {str(e)}"
+            yield stream_message("error", result["error_msg"])
+            yield stream_message("vid_info", result)
+            return
 
-        thumbnail = json_vid_info.get("thumbnail")
-        duration = json_vid_info.get("duration")
-        views = json_vid_info.get("view_count")
-        likes = json_vid_info.get("like_count")
-        playable_in_embed = json_vid_info.get("playable_in_embed")
-        title = json_vid_info.get("fulltitle", json_vid_info.get("title"))
-        categories = json_vid_info.get("categories", [])
-        description = json_vid_info.get("description")
-        channel_name = json_vid_info.get("channel")
-        uploader = json_vid_info.get("uploader")
-        language = json_vid_info.get("language")
-
-        full_vid_info = {
+        result["full_vid_info"] = {
             "id": video_id,
-            "thumbnail": thumbnail,
-            "views": views,
-            "duration": duration,
-            "likes": likes,
-            "playable_in_embed": playable_in_embed,
-            # ? For AI analysis
-            "title": title,
-            "categories": categories,
-            "description": description,
-            "channel_name": channel_name,
-            "uploader": uploader,
-            "language": language,
+            "thumbnail": json_vid_info.get("thumbnail"),
+            "views": json_vid_info.get("view_count"),
+            "duration": json_vid_info.get("duration"),
+            "likes": json_vid_info.get("like_count"),
+            "playable_in_embed": json_vid_info.get("playable_in_embed"),
+            "title": json_vid_info.get("fulltitle", json_vid_info.get("title")),
+            "categories": json_vid_info.get("categories", []),
+            "description": json_vid_info.get("description"),
+            "channel_name": json_vid_info.get("channel"),
+            "uploader": json_vid_info.get("uploader"),
+            "language": json_vid_info.get("language"),
         }
 
-        vid_info_for_validation = {
-            "title": title,
-            "categories": categories,
-            "description": description,
-            "channel_name": channel_name,
-            "uploader": uploader,
-            "language": language,
-        }
-
-        subtitle_info = {
-            "exist": False,
-            "path": None,
-            "ext": None,
+        result["vid_info_for_validation"] = {
+            "title": result["full_vid_info"]["title"],
+            "categories": result["full_vid_info"]["categories"],
+            "description": result["full_vid_info"]["description"],
+            "channel_name": result["full_vid_info"]["channel_name"],
+            "uploader": result["full_vid_info"]["uploader"],
+            "language": result["full_vid_info"]["language"],
         }
 
         subtitle_pattern = f"./output/track/{video_id}.ja.*"
         subtitle_files = glob.glob(subtitle_pattern)
         if subtitle_files:
-            subtitle_info["exist"] = True
+            result["subtitle_info"]["exist"] = True
             subtitle_file = subtitle_files[0]
-            subtitle_info["path"] = subtitle_file
+            result["subtitle_info"]["path"] = subtitle_file
             _, ext = os.path.splitext(subtitle_file)
-            subtitle_info["ext"] = ext
+            result["subtitle_info"]["ext"] = ext
 
-        if not playable_in_embed:
-            error_msg = "Video is not playable outside of YouTube"
-            return (
-                False,
-                audio_file_path,
-                full_vid_info,
-                vid_info_for_validation,
-                subtitle_info,
-                error_msg,
-            )
+        if not result["full_vid_info"]["playable_in_embed"]:
+            result["error_msg"] = "Video is not playable outside of YouTube"
+            yield stream_message("error", result["error_msg"])
+            yield stream_message("vid_info", result)
+            return
 
-        if language == "ja" and "Music" in categories:
-            passed = True
+        if (
+            result["full_vid_info"]["language"] == "ja"
+            and "Music" in result["full_vid_info"]["categories"]
+        ):
+            result["passed"] = True
         else:
-            passed = self.validate_youtube_video(vid_info_for_validation)
-            if not passed:
-                error_msg = "This video is not a Japanese music video"
+            result["passed"] = self.validate_youtube_video(
+                result["vid_info_for_validation"]
+            )
+            if not result["passed"]:
+                result["error_msg"] = "This video is not a Japanese music video"
 
-        return (
-            passed,
-            audio_file_path,
-            full_vid_info,
-            vid_info_for_validation,
-            subtitle_info,
-            error_msg,
-        )
+        yield stream_message("update", "Video validation completed")
+        yield stream_message("vid_info", result)
+
 
     def get_transcription(self, video_id, audio_file_path):
         # subtitle_file_path = "./output/track/" + video_id + ".ja.vtt"
@@ -433,7 +376,7 @@ class OpenAIService:
         # TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
 
         if transcription:
-            return transcription
+            return srt_save_path
         else:
             return "Failed to get transcription"
 
@@ -530,74 +473,74 @@ class OpenAIService:
         if duration and duration > 480:
             return "The video is too long"
 
-    #! Helper Function - process GPT Whisper transcription
-    def process_gpt_transcription(self, gpt_output):
-        # Process the transcription response from OpenAI
-        lyrics = []
-        timestamped_lyrics = []
-        filtered_srt_content = []
+    # #! Helper Function - process GPT Whisper transcription
+    # def process_gpt_transcription(self, gpt_output):
+    #     # Process the transcription response from OpenAI
+    #     lyrics = []
+    #     timestamped_lyrics = []
+    #     filtered_srt_content = []
 
-        srt_blocks = gpt_output.strip().split("\n\n")
+    #     srt_blocks = gpt_output.strip().split("\n\n")
 
-        # Check for if majority of blocks have the same content
-        content_count = {}
-        for block in srt_blocks:
-            lines = block.strip().split("\n")
-            if len(lines) >= 3:
-                content = " ".join(lines[2:])
-                content_count[content] = content_count.get(content, 0) + 1
+    #     # Check for if majority of blocks have the same content
+    #     content_count = {}
+    #     for block in srt_blocks:
+    #         lines = block.strip().split("\n")
+    #         if len(lines) >= 3:
+    #             content = " ".join(lines[2:])
+    #             content_count[content] = content_count.get(content, 0) + 1
 
-        most_common_content = max(content_count, key=content_count.get)
-        most_common_count = content_count[most_common_content]
+    #     most_common_content = max(content_count, key=content_count.get)
+    #     most_common_count = content_count[most_common_content]
 
-        if most_common_count / len(srt_blocks) >= 0.8:
-            raise ValueError(
-                "Error: 80% or more of the SRT blocks have the same content. The transcription model may have errored out."
-            )
+    #     if most_common_count / len(srt_blocks) >= 0.8:
+    #         raise ValueError(
+    #             "Error: 80% or more of the SRT blocks have the same content. The transcription model may have errored out."
+    #         )
 
-        for index, block in enumerate(srt_blocks, 1):
-            lines = block.strip().split("\n")
-            if len(lines) >= 3:
-                timestamp = lines[1]
-                lyric = " ".join(lines[2:])
-                start_time_str, end_time_str = timestamp.split(" --> ")
-                start_time = utils.convert_time_to_seconds(start_time_str)
-                end_time = utils.convert_time_to_seconds(end_time_str)
-                duration = round(end_time - start_time, 3)
+    #     for index, block in enumerate(srt_blocks, 1):
+    #         lines = block.strip().split("\n")
+    #         if len(lines) >= 3:
+    #             timestamp = lines[1]
+    #             lyric = " ".join(lines[2:])
+    #             start_time_str, end_time_str = timestamp.split(" --> ")
+    #             start_time = utils.convert_time_to_seconds(start_time_str)
+    #             end_time = utils.convert_time_to_seconds(end_time_str)
+    #             duration = round(end_time - start_time, 3)
 
-                if (
-                    not any(
-                        exclude_str in lyric
-                        for exclude_str in transcription_filter_srt_array
-                    )
-                    and not (duration >= 30 and len(lyric) > 20)
-                    and not (len(lyric) > 50)
-                ):
+    #             if (
+    #                 not any(
+    #                     exclude_str in lyric
+    #                     for exclude_str in transcription_filter_srt_array
+    #                 )
+    #                 and not (duration >= 30 and len(lyric) > 20)
+    #                 and not (len(lyric) > 50)
+    #             ):
 
-                    lyrics.append(lyric)
-                    start_time_str, end_time_str = timestamp.split(" --> ")
-                    start_time = utils.convert_time_to_seconds(start_time_str)
-                    end_time = utils.convert_time_to_seconds(end_time_str)
-                    duration = round(end_time - start_time, 3)
+    #                 lyrics.append(lyric)
+    #                 start_time_str, end_time_str = timestamp.split(" --> ")
+    #                 start_time = utils.convert_time_to_seconds(start_time_str)
+    #                 end_time = utils.convert_time_to_seconds(end_time_str)
+    #                 duration = round(end_time - start_time, 3)
 
-                    timestamped_lyrics.append(
-                        {
-                            "start_time": start_time,
-                            "end_time": end_time,
-                            "duration": duration,
-                            "lyric": lyric,
-                        }
-                    )
+    #                 timestamped_lyrics.append(
+    #                     {
+    #                         "start_time": start_time,
+    #                         "end_time": end_time,
+    #                         "duration": duration,
+    #                         "lyric": lyric,
+    #                     }
+    #                 )
 
-                    filtered_srt_content.append(f"{index}\n{timestamp}\n{lyric}\n")
+    #                 filtered_srt_content.append(f"{index}\n{timestamp}\n{lyric}\n")
 
-        filtered_srt = "\n".join(filtered_srt_content)
+    #     filtered_srt = "\n".join(filtered_srt_content)
 
-        return {
-            "lyrics": lyrics,
-            "timestamped_lyrics": timestamped_lyrics,
-            "filtered_srt": filtered_srt,
-        }
+    #     return {
+    #         "lyrics": lyrics,
+    #         "timestamped_lyrics": timestamped_lyrics,
+    #         "filtered_srt": filtered_srt,
+    #     }
 
     def validate_youtube_video(self, video_info):
         validation_msg = [
