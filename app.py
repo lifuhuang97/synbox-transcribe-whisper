@@ -30,24 +30,31 @@ def init_page():
 
 
 #! Step 1
-@app.route("/validate", methods=["POST"])
+@app.route("/validate", methods=["OPTIONS", "POST"])
 def validation_endpoint():
     def generate():
-        yield stream_message("update", "Starting...")
-        time.sleep(2)
-        yield stream_message("update", "Retrieving video information...")
-        try:
-            # Extract the query parameter
-            data = request.json
-            video_id = data.get("id")
-            
-            for update in openai_service.validate_video(video_id):
-                yield update
+        if request.method == "OPTIONS":
+            response = app.make_response("")
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+            return response
+        elif request.method == "POST":
+            yield stream_message("update", "Starting...")
+            time.sleep(2)
+            yield stream_message("update", "Retrieving video information...")
+            try:
+                # Extract the query parameter
+                data = request.json
+                video_id = data.get("id")
 
-            yield stream_message("update", "Validation complete.")
-            
-        except Exception as e:
-            yield stream_message("error", str(e))
+                for update in openai_service.validate_video(video_id):
+                    yield update
+
+                yield stream_message("update", "Validation complete.")
+
+            except Exception as e:
+                yield stream_message("error", str(e))
 
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
@@ -177,6 +184,7 @@ def transcription_endpoint():
         }
     )
 
+
 # @app.route("/stream_conversation", methods=["POST"])
 @app.route("/stream_conversation")
 def stream_conversation():
@@ -192,7 +200,6 @@ def stream_conversation():
             yield f"data: {json.dumps({'content': chunk})}\n\n"
 
     return Response(generate(), mimetype="text/event-stream")
-
 
 
 if __name__ == "__main__":
