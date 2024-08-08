@@ -8,7 +8,7 @@ import stable_whisper
 import whisper
 from pytube import Channel, YouTube, request
 
-from utils import utils
+from utils.utils import utils
 
 
 class WhisperService:
@@ -141,14 +141,15 @@ class WhisperService:
                 denoiser="demucs",
                 extra_models=self.extra_models,
                 progress_callback=update_progress_callback,
-                    )
-            .split_by_gap(0.1)  # Fine-tune gap value for splitting
+            ).split_by_gap(
+                0.1
+            )  # Fine-tune gap value for splitting
             # .split_by_length(max_chars=10)  # Decrease max_chars to make segments shorter
         )
-        
+
         # result = self.model.transcribe(audio_file, language=language, word_timestamps=False, beam_size=5,no_speech_threshold=0.38, vad=True, extra_models=self.extra_models, denoiser="demucs", progress_callback=update_progress_callback).split_by_gap().split_by_length(max_chars=20)
         # result = self.model.transcribe_minimal(audio_file, language=language)  # (audio_file, language=language, word_timestamps=False, beam_size=5,no_speech_threshold=0.38, vad=True, progress_callback=update_progress_callback).split_by_length(max_chars=20)
-        result.to_srt_vtt(lyrics_filename, tag=("<font>","</font>"))
+        result.to_srt_vtt(lyrics_filename, tag=("<font>", "</font>"))
 
         # refined_result = self.model.align(audio_file, result, language=language)
         # refined_lyrics_filename = os.path.join(lyrics_dir, video_id + "_refined.srt")
@@ -194,8 +195,12 @@ class WhisperService:
                 # ? If row is a timestamp, get start_time, end_time, and duration
                 if re.match(r"\d+:\d+:\d+,\d+ --> \d+:\d+:\d+,\d+", line):
                     start_time, end_time = line.split(" --> ")
-                    start_time = float(format(utils.convert_time_to_seconds(start_time), ".3f"))
-                    end_time = float(format(utils.convert_time_to_seconds(end_time), ".3f"))
+                    start_time = float(
+                        format(utils.convert_time_to_seconds(start_time), ".3f")
+                    )
+                    end_time = float(
+                        format(utils.convert_time_to_seconds(end_time), ".3f")
+                    )
                     current_block["start_time"] = start_time
                     current_block["end_time"] = end_time
                     current_block["duration"] = format(
@@ -266,7 +271,10 @@ class WhisperService:
                     if current_line == line_word_is_in:
 
                         # If there's a gap, add a space
-                        if current_block["start_time"] - previous_character_end_time > 0:
+                        if (
+                            current_block["start_time"] - previous_character_end_time
+                            > 0
+                        ):
                             current_line += " "
                         # Add the word to the current line and subarray
                         current_line += current_block["word"]
@@ -295,18 +303,32 @@ class WhisperService:
                     # ? If we moved onto a new line:
                     else:
                         # If the current line length is within the limits, merge lines
-                        if len(current_line) <= 15 or (len(current_line) <= 20 and len(current_line) + len(current_block["word"]) <= 20):
-                            if current_block["start_time"] - previous_character_end_time > 0.5:
+                        if len(current_line) <= 15 or (
+                            len(current_line) <= 20
+                            and len(current_line) + len(current_block["word"]) <= 20
+                        ):
+                            if (
+                                current_block["start_time"]
+                                - previous_character_end_time
+                                > 0.5
+                            ):
                                 current_line += " "
                             current_line += current_block["word"]
                             sub_array_for_lines["words"].append(current_block.copy())
                             previous_character_end_time = current_block["end_time"]
-                            current_block = {"word": "", "start_time": 0, "end_time": 0, "duration": 0}
+                            current_block = {
+                                "word": "",
+                                "start_time": 0,
+                                "end_time": 0,
+                                "duration": 0,
+                            }
 
                         else:
                             # Add the current line to lyrics info and reset for the next line
                             if sub_array_for_lines["text"]:
-                                sub_array_for_lines["end_time"] = previous_character_end_time
+                                sub_array_for_lines["end_time"] = (
+                                    previous_character_end_time
+                                )
                                 lyrics_info["lines"].append(sub_array_for_lines.copy())
                             current_line = line_word_is_in
                             sub_array_for_lines = {
@@ -317,7 +339,9 @@ class WhisperService:
                             }
 
             if sub_array_for_lines["words"] and sub_array_for_lines["text"] != "":
-                sub_array_for_lines["end_time"] = sub_array_for_lines["words"][-1]["end_time"]
+                sub_array_for_lines["end_time"] = sub_array_for_lines["words"][-1][
+                    "end_time"
+                ]
                 lyrics_info["lines"].append(sub_array_for_lines.copy())
 
             return lyrics_info

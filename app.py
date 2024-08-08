@@ -12,7 +12,7 @@ from flask_cors import CORS
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
 
-from utils import utils, stream_message
+from utils.utils import utils, stream_message
 
 load_dotenv()
 sys.path.append("../")
@@ -32,14 +32,16 @@ def init_page():
 #! Step 1
 @app.route("/validate", methods=["OPTIONS", "POST"])
 def validation_endpoint():
+
+    if request.method == "OPTIONS":
+        response = app.make_response("")
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        return response
+
     def generate():
-        if request.method == "OPTIONS":
-            response = app.make_response("")
-            response.headers.add("Access-Control-Allow-Origin", "*")
-            response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-            return response
-        elif request.method == "POST":
+        if request.method == "POST":
             yield stream_message("update", "Starting...")
             time.sleep(2)
             yield stream_message("update", "Retrieving video information...")

@@ -3,7 +3,7 @@ from pytube import YouTube, Playlist, Search
 import sys
 sys.path.append('../')
 
-from utils import utils
+from utils.utils import utils
 
 class PyTubeService:
     def get_video_info(self, video_id):

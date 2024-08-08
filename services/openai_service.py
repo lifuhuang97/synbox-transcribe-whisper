@@ -3,7 +3,7 @@ import glob
 import json
 from openai import OpenAI
 import yt_dlp
-from utils import utils, stream_message
+from utils.utils import utils, stream_message
 
 romaji_annotation_system_message = {
     "role": "system",
