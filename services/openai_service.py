@@ -3,7 +3,8 @@ import glob
 import json
 from openai import OpenAI
 import yt_dlp
-from utils.utils import utils, stream_message
+from utils import utils
+
 
 romaji_annotation_system_message = {
     "role": "system",
@@ -213,26 +214,24 @@ class OpenAIService:
                 error_code = ydl.download(full_vid_url)
                 if error_code:
                     result["error_msg"] = "Audio download failed"
-                    yield stream_message("error", result["error_msg"])
-                    yield stream_message("data", result)
+                    yield utils.stream_message("error", result["error_msg"])
+                    yield utils.stream_message("data", result)
                     return
-                yield stream_message("update", "Audio track downloaded")
         except Exception as e:
             result["error_msg"] = f"An error occurred during video download: {str(e)}"
-            yield stream_message("error", result["error_msg"])
-            yield stream_message("vid_info", result)
+            yield utils.stream_message("error", result["error_msg"])
             return
 
         result["audio_file_path"] = "./output/track/" + video_id + ".m4a"
         info_file_path = "./output/track/" + video_id + ".info.json"
+        yield utils.stream_message("update", "Analyzing Video...")
 
         try:
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
         except Exception as e:
             result["error_msg"] = f"Error reading video info: {str(e)}"
-            yield stream_message("error", result["error_msg"])
-            yield stream_message("vid_info", result)
+            yield utils.stream_message("error", result["error_msg"])
             return
 
         result["full_vid_info"] = {
@@ -270,8 +269,7 @@ class OpenAIService:
 
         if not result["full_vid_info"]["playable_in_embed"]:
             result["error_msg"] = "Video is not playable outside of YouTube"
-            yield stream_message("error", result["error_msg"])
-            yield stream_message("vid_info", result)
+            yield utils.stream_message("error", result["error_msg"])
             return
 
         if (
@@ -286,9 +284,8 @@ class OpenAIService:
             if not result["passed"]:
                 result["error_msg"] = "This video is not a Japanese music video"
 
-        yield stream_message("update", "Video validation completed")
-        yield stream_message("vid_info", result)
-
+        yield utils.stream_message("update", "Validation Completed")
+        yield utils.stream_message("vid_info", result)
 
     def get_transcription(self, video_id, audio_file_path):
         # subtitle_file_path = "./output/track/" + video_id + ".ja.vtt"
@@ -468,10 +465,12 @@ class OpenAIService:
 
     #! Helper Function - check video length
     def longer_than_eight_mins(self, info):
-        """Download only videos shorter than 5mins"""
+        """Download only videos shorter than 5mins or longer than 1min"""
         duration = info.get("duration")
         if duration and duration > 480:
             return "The video is too long"
+        elif duration and duration < 60:
+            return "The video is too short"
 
     # #! Helper Function - process GPT Whisper transcription
     # def process_gpt_transcription(self, gpt_output):

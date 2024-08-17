@@ -1,9 +1,10 @@
 import json
 from pytube import YouTube, Playlist, Search
-import sys
-sys.path.append('../')
-
 from utils.utils import utils
+import sys
+
+sys.path.append("../")
+
 
 class PyTubeService:
     def get_video_info(self, video_id):
@@ -33,8 +34,8 @@ class PyTubeService:
                 "length": video.length,
                 "description": video.description,
                 "thumbnail_url": video.thumbnail_url,
-                "embed_url":video.embed_url,
-                "keywords":video.keywords,
+                "embed_url": video.embed_url,
+                "keywords": video.keywords,
                 "views": video.views,
             }
         except Exception as e:
@@ -53,11 +54,15 @@ class PyTubeService:
         """
         try:
             playlist = Playlist(f"https://www.youtube.com/playlist?list={playlist_id}")
-            print(dir(playlist))  # Print the attributes and methods of the Playlist object
+            print(
+                dir(playlist)
+            )  # Print the attributes and methods of the Playlist object
             return {
                 "title": playlist.title,
                 "video_count": len(playlist.video_urls),
-                "videos": [self.get_video_info(video_id) for video_id in playlist.video_urls],
+                "videos": [
+                    self.get_video_info(video_id) for video_id in playlist.video_urls
+                ],
             }
         except Exception as e:
             print(f"Error fetching playlist info: {e}")
@@ -86,7 +91,7 @@ class PyTubeService:
                         "thumbnail_url": video.thumbnail_url,
                         # embed_url is basically the youtube url
                         # "embed_url":video.embed_url,
-                        "keywords":video.keywords,
+                        "keywords": video.keywords,
                         "views": video.views,
                         "metadata": video.metadata,
                         "_metadata": video._metadata,
@@ -98,6 +103,7 @@ class PyTubeService:
             print(f"Error searching videos: {e}")
             return None
 
+
 # Example usage:
 pytube_service = PyTubeService()
 
@@ -107,14 +113,14 @@ def print_object(obj):
     formatted_obj = json.dumps(obj, indent=2, ensure_ascii=False)
 
     # Replace problematic characters with a placeholder
-    formatted_obj = formatted_obj.encode('utf-8', 'ignore').decode('utf-8')
+    formatted_obj = formatted_obj.encode("utf-8", "ignore").decode("utf-8")
 
     # Print each line of the formatted object
-    for line in formatted_obj.split('\n'):
+    for line in formatted_obj.split("\n"):
         print(line)
 
 
-#? Testing getting video data
+# ? Testing getting video data
 # video_info = pytube_service.get_video_info("VyvhvlYvRnc")
 # print("Video Info:", video_info)
 
@@ -122,16 +128,16 @@ def print_object(obj):
 # playlist_info = pytube_service.get_playlist_info("PLzJ1mqwxogpFuFCk1YfUE1c0gWtnIutfz")
 # print("Playlist Info:", playlist_info)
 
-#? Testing search by query
+# ? Testing search by query
 # search_results = pytube_service.search_videos("ado Ode")
 # for result in search_results:
 #     print_object(result)
 
-#? completion
+# ? completion
 # suggestions = pytube_service.get_search_suggestions("ado kura")
 # print("RESULTS ARE BACK, ABOVE ARE FROM INSIDE FUNCTION")
 # for result in suggestions:
-    # print_object(result)
+# print_object(result)
 
 # print("ABOVE ARE ALL AUTOCOMPLETE SUGGESTIONS")
 
@@ -140,20 +146,20 @@ def print_object(obj):
 # utils.print_full_content(video_info)
 # print_object(video_info)
 # print("ABOVE ARE VIDEO INFO")
-        
+
 testing_obj = YouTube.from_id("tLQLa6lM3Us")
 
-                # "title": video.title,
-                # "_title": video._title,
-                # "author": video.author,
-                # "video_id": video.video_id,
-                # "views": video.views,
-                # "length": video.length,
-                # "description": video.description,
-                # "thumbnail_url": video.thumbnail_url,
-                # "embed_url":video.embed_url,
-                # "keywords":video.keywords,
-                # "views": video.views,
+# "title": video.title,
+# "_title": video._title,
+# "author": video.author,
+# "video_id": video.video_id,
+# "views": video.views,
+# "length": video.length,
+# "description": video.description,
+# "thumbnail_url": video.thumbnail_url,
+# "embed_url":video.embed_url,
+# "keywords":video.keywords,
+# "views": video.views,
 
 # print_object(testing_obj)
 print(testing_obj.title)

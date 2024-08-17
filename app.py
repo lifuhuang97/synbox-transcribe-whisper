@@ -12,7 +12,7 @@ from flask_cors import CORS
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
 
-from utils.utils import utils, stream_message
+from utils import utils
 
 load_dotenv()
 sys.path.append("../")
@@ -29,10 +29,8 @@ def init_page():
     return "Hey"
 
 
-#! Step 1
-@app.route("/validate", methods=["OPTIONS", "POST"])
-def validation_endpoint():
-
+@app.route("/test", methods=["OPTIONS", "POST"])
+def test_endpoint():
     if request.method == "OPTIONS":
         response = app.make_response("")
         response.headers.add("Access-Control-Allow-Origin", "*")
@@ -42,21 +40,60 @@ def validation_endpoint():
 
     def generate():
         if request.method == "POST":
-            yield stream_message("update", "Starting...")
+            yield utils.stream_message("update", "Step One")
+            time.sleep(1)
+            yield utils.stream_message("data", "Data Fragment 1...")
+            time.sleep(1)
+            yield utils.stream_message("data", "Data Fragment 2...")
+            # time.sleep(1)
+            # yield utils.stream_message("error", "Something went wrong...")
+            time.sleep(1)
+            yield utils.stream_message("update", "Video validation completed")
+            time.sleep(1)
+            yield utils.stream_message(
+                "vid_info",
+                {
+                    "id": "NDwqZIXOvKw",
+                    "title": "【MV】KANA-BOON 『シルエット』",
+                    "author": "KANA-BOON",
+                    "views": 2000000,
+                    "duration": 200,
+                },
+            )
+            time.sleep(1)
+            yield utils.stream_message("update", "Ending...")
+
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+
+
+#! Step 1
+@app.route("/validate", methods=["OPTIONS", "POST"])
+def validation_endpoint():
+    if request.method == "OPTIONS":
+        response = app.make_response("")
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        return response
+
+    def generate():
+        if request.method == "POST":
+            yield utils.stream_message("update", "Receiving Updates...")
             time.sleep(2)
-            yield stream_message("update", "Retrieving video information...")
+            yield utils.stream_message("update", "Retrieving video information...")
             try:
                 # Extract the query parameter
                 data = request.json
+                print("Data: ", data)
                 video_id = data.get("id")
 
                 for update in openai_service.validate_video(video_id):
                     yield update
 
-                yield stream_message("update", "Validation complete.")
+                yield utils.stream_message("update", "Validation complete.")
 
             except Exception as e:
-                yield stream_message("error", str(e))
+                yield utils.stream_message("error", str(e))
 
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
