@@ -98,32 +98,157 @@ def validation_endpoint():
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
 
+#! Step 2
 @app.route("/transcribev2", methods=["POST"])
 def transcription_endpoint_v2():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        return response
+
     def generate():
-        data = request.json
-        video_id = data.get("id")
-        subtitle_info = data.get("subtitle_info")
-        subtitle_exist = subtitle_info.exist
+        if request.method == "POST":
+            data = request.json
+            print("data is ", data)
+            video_id = data.get("id")
+            subtitle_info = data.get("subtitle_info")
+            print("subtitle info is ", subtitle_info)
+            subtitle_exist = subtitle_info["exist"]
 
-        # ? Check for whether there was downloaded subtitles
-        if subtitle_exist:
-            subtitle_file = subtitle_info.path
-            subtitle_ext = subtitle_info.ext
+            try:
+                if subtitle_exist:
+                    subtitle_file_path = subtitle_info["path"]
+                    subtitle_ext = subtitle_info["ext"]
 
-            transcription = utils.process_subtitle_file(
-                subtitle_file, subtitle_ext, apply_error_checks=False
+                    transcription = utils.process_subtitle_file(
+                        subtitle_file_path, subtitle_ext, apply_error_checks=False
+                    )
+                    ai_generated = False
+                else:
+                    audio_path = f"./output/track/{video_id}.m4a"
+                    raw_transcription_path = openai_service.get_transcription(
+                        video_id, audio_path
+                    )
+                    transcription = utils.process_subtitle_file(
+                        raw_transcription_path, "srt", apply_error_checks=True
+                    )
+                    ai_generated = True
+
+                yield utils.stream_message("update", "Transcription completed.")
+                yield utils.stream_message("ai_generated", ai_generated)
+                yield utils.stream_message("transcription", transcription)
+
+            except Exception as e:
+                error_message = f"An error occurred during transcription: {str(e)}"
+                print(error_message)  # Log the error
+                yield utils.stream_message("error", error_message)
+                return  # Stop the generator after sending the error message
+
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+
+
+#! Step 3
+@app.route("/translate-annotate", methods=["OPTIONS", "POST"])
+def translate_annotate_endpoint():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        return response
+
+    def generate():
+        if request.method == "POST":
+            yield utils.stream_message(
+                "update", "Starting translation and annotation process..."
             )
 
-        else:
-            # ? Audio file path
-            audio_path = f"./output/track/{video_id}.m4a"
-            raw_transcription = openai_service.get_transcription(video_id, audio_path)
-            transcription = utils.process_subtitle_file(
-                raw_transcription, "srt", apply_error_checks=True
-            )
+            try:
+                data = request.json
+                video_id = data.get("id")
+                lyrics_arr = data.get("lyrics")
+                timestamped_lyrics = data.get("timestamped_lyrics")
 
-    return Response(generate(), mimetype="text/event-stream")
+                # Translation process with retry mechanism
+                MAX_RETRIES = 3
+                retry_count = 0
+                eng_translation, chi_translation = None, None
+
+                while retry_count < MAX_RETRIES:
+                    try:
+                        yield utils.stream_message(
+                            "update",
+                            f"Attempting translations (try {retry_count + 1}/{MAX_RETRIES})...",
+                        )
+                        eng_translation, chi_translation = (
+                            openai_service.get_translations(
+                                timestamped_lyrics, video_id
+                            )
+                        )
+                        if eng_translation and chi_translation:
+                            yield utils.stream_message(
+                                "update", "Translations completed successfully."
+                            )
+                            break
+                    except ValueError as e:
+                        yield utils.stream_message(
+                            "update",
+                            f"Translation attempt {retry_count + 1} failed: {str(e)}",
+                        )
+                        retry_count += 1
+                        if retry_count == MAX_RETRIES:
+                            yield utils.stream_message(
+                                "error",
+                                "Max retries reached. Unable to get translations.",
+                            )
+                            return
+                        else:
+                            yield utils.stream_message(
+                                "update",
+                                f"Retrying translation (attempt {retry_count + 1})...",
+                            )
+
+                if eng_translation is None or chi_translation is None:
+                    yield utils.stream_message("error", "Translation failed")
+                    return
+
+                # Romaji lyrics
+                yield utils.stream_message("update", "Generating romaji lyrics...")
+                romaji_lyrics = openai_service.get_romaji_lyrics(lyrics_arr, video_id)
+
+                # Kanji annotations
+                yield utils.stream_message("update", "Generating kanji annotations...")
+                kanji_annotations = openai_service.get_kanji_annotations(
+                    lyrics_arr, video_id
+                )
+
+                if romaji_lyrics is None or kanji_annotations is None:
+                    yield utils.stream_message(
+                        "error", "Romaji or kanji annotation failed"
+                    )
+                    return
+
+                # Send final results
+                yield utils.stream_message(
+                    "result",
+                    {
+                        "eng_translation": eng_translation,
+                        "chi_translation": chi_translation,
+                        "romaji_lyrics": romaji_lyrics,
+                        "kanji_annotations": kanji_annotations,
+                    },
+                )
+
+                yield utils.stream_message(
+                    "update", "Translation and annotation process completed."
+                )
+
+            except Exception as e:
+                yield utils.stream_message("error", str(e))
+
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
 
 @app.route("/transcribe")

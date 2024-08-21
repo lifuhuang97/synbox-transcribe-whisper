@@ -18,6 +18,7 @@ transcription_filter_srt_array = [
     " 歌詞のない部分は",
     "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
     "ªªªªªªªªªªªªªªªªªªªªª",
+    "字幕閲覧ありがとうございました",
     "🥀🥀🥀🥀",
     "🐻",
 ]
@@ -115,11 +116,11 @@ def process_subtitle_file(
     def process_subtitle(content: str, subtitle_format: str) -> List[Dict[str, Any]]:
         timestamped_lyrics = []
 
-        if subtitle_format == "srt":
+        if subtitle_format == "srt" or subtitle_format == ".srt":
             pattern = r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)\n((?:.+\n?)+)"
-        elif subtitle_format == "vtt":
+        elif subtitle_format == "vtt" or subtitle_format == ".vtt":
             pattern = r"(\d+:\d+:\d+\.\d+) --> (\d+:\d+:\d+\.\d+)\n((?:.+\n?)+)"
-        elif subtitle_format in ["ass", "ssa"]:
+        elif subtitle_format in ["ass", "ssa", ".ssa", ".ass"]:
             pattern = r"Dialogue: [^,]*,(\d+:\d+:\d+\.\d+),(\d+:\d+:\d+\.\d+),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)"
         else:
             raise ValueError(f"Unsupported subtitle format: {subtitle_format}")

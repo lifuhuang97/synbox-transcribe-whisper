@@ -5,174 +5,21 @@ from openai import OpenAI
 import yt_dlp
 from utils import utils
 
+from config import (
+    TOOLS,
+    VALIDATE_YOUTUBE_VIDEO_SYSTEM_MESSAGE,
+    TRANSLATION_SETUP_SYSTEM_MESSAGE,
+    KANJI_ANNOTATION_SYSTEM_MESSAGE,
+    ROMAJI_ANNOTATION_SYSTEM_MESSAGE,
+    WHISPER_PROMPT
+)
 
-romaji_annotation_system_message = {
-    "role": "system",
-    "content": """
-    以下の要件に従って、日本語の歌詞をローマ字に変換するためのシステムプロンプトを作成してください：
-    各行をそのままローマ字に変換してください。外国語が検出された場合、その行をそのまま出力にコピーしてください。
-    出力の行数は入力の行数と一致させてください。
-    ローマ字は基本的にすべて小文字で記載し、特定の外国語や文脈で必要な場合のみ大文字を使用してください。また、句読点は適用する場合、そのまま保持してください。
-    
-    例：
-    入力：
-    こんにちは、世界！
-    this is a test
-    出力：
-    konnichiwa, sekai!
-    this is a test
-    
-    歌詞を以下の要件に従って変換してください。
-    """,
-}
-kanji_annotation_system_message = {
-    "role": "system",
-    "content": """
-    You are an expert in annotating Japanese song lyrics with the correct furigana pronunciations. Please follow the requirements below to add furigana to the lyrics:
-
-    Requirements:
-    1. Add furigana to each kanji character by placing the furigana in square brackets [] immediately after the kanji character.
-    2. If there are multiple consecutive kanji characters, include the furigana for all characters within a single set of square brackets. However, if individual furigana are needed for each kanji, place each furigana in its own set of square brackets immediately after the corresponding kanji character.
-    3. The output must have the same number of lines as the input. For example, if the input array has 30 lines, the output should also have 30 lines.
-    4. Do not include any additional system-related messages in the output, only the annotated lyrics.
-
-    Example:
-
-    Input:
-    彼女は笑った
-    美しい世界が見える
-
-    Output:
-    彼女[かのじょ]は笑[わら]った
-    美[うつく]しい世界[せかい]が見[み]える
-    """,
-}
-translation_setup_system_message = {
-    "role": "system",
-    "content": """
-You are an expert trilingual translator specializing in Japanese, English, and Chinese, with a deep understanding of song lyrics. Your task is to translate Japanese song lyrics into both English and Chinese, maintaining the poetic and expressive nature while ensuring clarity.
-
-Key requirements:
-1. Thoroughly read and understand the entire set of lyrics before translating to grasp the full context and ensure accurate meaning capture.
-2. The number of lines in both translations must exactly match the number of lines in the original Japanese lyrics.
-3. Translate to form a complete and coherent narrative, connecting verses smoothly while capturing the essence, emotions, and meaning of the original lyrics.
-4. If a sentence spans multiple lines, translate it properly as a whole, then repeat the translation across those lines to maintain the line count.
-5. Preserve any artistic elements like metaphors or wordplay as much as possible in both translations.
-6. If there's any english or chinese lyrics, keep these lines and translate them to/fro chinese and english respectively.
-
-Return the translations in JSON format with two separate arrays: one for English and one for Chinese, each with the same number of elements as the input Japanese lyrics.
-
-Example Input:
-1
-00:00:05,000 --> 00:00:10,000
-今、静かな夜の中で
-
-2
-00:00:10,000 --> 00:00:15,000
-無計画に車を走らせた
-
-3
-00:00:15,000 --> 00:00:20,000
-左隣、あなたの
-
-4
-00:00:20,000 --> 00:00:25,000
-横顔を月が照らした
-
-Expected Output Format:
-{
-  "english_lyrics": [
-    "Now, in the quiet night",
-    "I drove the car aimlessly",
-    "To my left, you",
-    "Your profile illuminated by the moon"
-  ],
-  "chinese_lyrics": [
-    "此时此刻，在寂静的夜色中",
-    "漫无目的地驾着车",
-    "你坐在我的左侧",
-    "你的侧脸被月光照亮"
-  ]
-}
-
-Translate the following Japanese lyrics into both English and Chinese, ensuring the output matches this format and maintains the exact number of lines as the input.
-""",
-}
-validate_youtube_video_system_message = {
-    "role": "system",
-    "content": """
-    I will give you the relevant details of a youtube video in JSON format. Help me analyze whether the given details can tell you with extremely high certainty that the video is a video of a Japanese song or a Japanese music video of a song, nothing else. Reply with 1 character only and nothing else (Y / N) to represent your judgment.
-    """,
-}
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "translate_lyrics",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "english_lyrics": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                    "chinese_lyrics": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                },
-                "required": ["english_lyrics", "chinese_lyrics"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "convert_to_romaji",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "romaji": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                },
-                "required": ["romaji"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "annotate_with_furigana",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "furigana_ann_lyrics": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                },
-                "required": ["furigana_ann_lyrics"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "validate_music_video",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "decision": {
-                        "type": "string",
-                    },
-                },
-                "required": ["decision"],
-            },
-        },
-    },
-]
+tools = TOOLS
+validate_youtube_video_system_message = VALIDATE_YOUTUBE_VIDEO_SYSTEM_MESSAGE
+translation_setup_system_message = TRANSLATION_SETUP_SYSTEM_MESSAGE
+kanji_annotation_system_message = KANJI_ANNOTATION_SYSTEM_MESSAGE
+romaji_annotation_system_message = ROMAJI_ANNOTATION_SYSTEM_MESSAGE
+whisper_prompt = WHISPER_PROMPT
 
 
 class OpenAIService:
@@ -219,6 +66,13 @@ class OpenAIService:
                     return
         except Exception as e:
             result["error_msg"] = f"An error occurred during video download: {str(e)}"
+            if (
+                str(e)
+                == "Encountered a video that did not match filter, stopping due to --break-match-filter"
+            ):
+                result["error_msg"] = (
+                    "The video length is invalid for processing, please try a different video."
+                )
             yield utils.stream_message("error", result["error_msg"])
             return
 
@@ -230,7 +84,9 @@ class OpenAIService:
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
         except Exception as e:
-            result["error_msg"] = f"Error reading video info: {str(e)}"
+            result["error_msg"] = (
+                f"Error reading video info: {str(e)}, please try again or try another video."
+            )
             yield utils.stream_message("error", result["error_msg"])
             return
 
@@ -268,7 +124,9 @@ class OpenAIService:
             result["subtitle_info"]["ext"] = ext
 
         if not result["full_vid_info"]["playable_in_embed"]:
-            result["error_msg"] = "Video is not playable outside of YouTube"
+            result["error_msg"] = (
+                "Video is not playable outside of YouTube, please try another video."
+            )
             yield utils.stream_message("error", result["error_msg"])
             return
 
@@ -282,7 +140,11 @@ class OpenAIService:
                 result["vid_info_for_validation"]
             )
             if not result["passed"]:
-                result["error_msg"] = "This video is not a Japanese music video"
+                result["error_msg"] = (
+                    "This video is not a Japanese music video, please try another video."
+                )
+                yield utils.stream_message("error", result["error_msg"])
+                return
 
         yield utils.stream_message("update", "Validation Completed")
         yield utils.stream_message("vid_info", result)
@@ -298,65 +160,7 @@ class OpenAIService:
                 file=audio_file,
                 language="ja",
                 # TODO: Rewrite prompt
-                # prompt="""
-                # これは日本語の歌です。歌詞を正確に書き起こし、.srt形式で返してください。
-                # 各行は2〜5秒以内に収め、非常に速い歌詞の場合は1秒単位で区切ってください。
-                # 歌詞がない部分は「(間奏)」と表記してください。
-                # 追加の応答やコメントは含めないでください。
-                # """,
-                # response_format="verbose_json",
-                # timestamp_granularities=["word"],
-                #                 prompt="""あなたは日本語の音声ファイルから日本語の歌詞を.srt形式で正確に書き起こす専門家です。以下の指示を守ってください：
-                # 1. 音声全体を連続的に書き起こしてくださいが、歌詞のない部分にはタイムスタンプと空白を残してください。
-                # 2. タイムスタンプを音声に正確に合わせてください。歌詞がない部分に歌詞を埋め込まないでください。
-                # 3. 各行を10~15文字以内に収め、長い歌詞は複数行に分割してください。
-                # 4. 歌詞のない部分は (前奏)、(間奏)、(後奏) と表記してください。
-                # 5. 歌詞のみを記載し、説明は省いてください。
-                # 例：
-                # 1
-                # 00:00:00,000 --> 00:00:18,000
-                # (前奏)
-                # 2
-                # 00:00:20,000 --> 00:00:22,870
-                # いつの間にやら日付は変わって
-                # 3
-                # 00:00:23,010 --> 00:00:26,450
-                # なんで年ってとるんだろう
-                # 4
-                # 00:00:27,030 --> 00:00:32,780
-                # もう背は伸びないくせに
-                # ...
-                # 音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。
-                # 歌詞がない場合は適切に空白を保持してください。""",
-                prompt="""
-あなたは日本語の音声ファイルから日本語の歌詞を.srt形式で正確に書き起こす専門家です。以下の指示を守ってください：
-
-1. 音声全体を連続的に書き起こしてください
-2. タイムスタンプを音声に正確に合わせてください
-3. 各行を10～15文字以内に収め、長い歌詞は複数行に分割してください
-4. 歌詞のない部分は (前奏)、(間奏)、(後奏)、(楽器演奏) と表記してください
-5. 歌詞のみを記載し、説明は省いてください
-
-例：
-1
-00:00:00,000 --> 00:00:18,000
-(前奏)
-
-2
-00:00:20,000 --> 00:00:22,870
-いつの間にやら日付は変わって
-
-3
-00:00:23,010 --> 00:00:26,450
-なんで年ってとるんだろう
-
-4
-00:00:27,030 --> 00:00:32,780
-もう背は伸びないくせに
-...
-
-音声の最初から最後まで、すべての時間を漏らさず書き起こしてください
-""",
+                prompt=whisper_prompt,
                 response_format="srt",
                 timestamp_granularities=["segment"],
                 temperature=0.8,
