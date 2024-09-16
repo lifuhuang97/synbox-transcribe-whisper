@@ -11,7 +11,7 @@ from config import (
     TRANSLATION_SETUP_SYSTEM_MESSAGE,
     KANJI_ANNOTATION_SYSTEM_MESSAGE,
     ROMAJI_ANNOTATION_SYSTEM_MESSAGE,
-    WHISPER_PROMPT
+    WHISPER_PROMPT,
 )
 
 tools = TOOLS
@@ -181,91 +181,91 @@ class OpenAIService:
         else:
             return "Failed to get transcription"
 
-    def get_translations(self, lyrics_arr, video_id):
-        messages = [
-            translation_setup_system_message,
-            {
-                "role": "user",
-                "content": f"Translate the following lyrics to English and Chinese. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
-            },
-        ]
-        gpt_response = None
+    # def get_translations(self, lyrics_arr, video_id):
+    #     messages = [
+    #         translation_setup_system_message,
+    #         {
+    #             "role": "user",
+    #             "content": f"Translate the following lyrics to English and Chinese. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
+    #         },
+    #     ]
+    #     gpt_response = None
 
-        try:
-            gpt_response = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=messages,
-                tools=tools,
-                temperature=0.8,
-                response_format={"type": "json_object"},
-                tool_choice={
-                    "type": "function",
-                    "function": {"name": "translate_lyrics"},
-                },
-            )
+    #     try:
+    #         gpt_response = self.client.chat.completions.create(
+    #             model=self.MODEL,
+    #             messages=messages,
+    #             tools=tools,
+    #             temperature=0.8,
+    #             response_format={"type": "json_object"},
+    #             tool_choice={
+    #                 "type": "function",
+    #                 "function": {"name": "translate_lyrics"},
+    #             },
+    #         )
 
-            # print("This is response message in ENG translation")
-            # print(gpt_response.choices[0])
+    #         # print("This is response message in ENG translation")
+    #         # print(gpt_response.choices[0])
 
-            # Check if there's a function call in the response
-            if gpt_response.choices[0].message.tool_calls:
-                function_call = gpt_response.choices[0].message.tool_calls[0].function
-                translations = json.loads(function_call.arguments)
-            else:
-                print("In else block here in gpt tool calls check")
-                raise ValueError("No function call found in the response")
+    #         # Check if there's a function call in the response
+    #         if gpt_response.choices[0].message.tool_calls:
+    #             function_call = gpt_response.choices[0].message.tool_calls[0].function
+    #             translations = json.loads(function_call.arguments)
+    #         else:
+    #             print("In else block here in gpt tool calls check")
+    #             raise ValueError("No function call found in the response")
 
-            if not all(
-                key in translations for key in ["english_lyrics", "chinese_lyrics"]
-            ):
-                print("In check for all translations keys exists")
-                raise ValueError("Response is missing required keys")
+    #         if not all(
+    #             key in translations for key in ["english_lyrics", "chinese_lyrics"]
+    #         ):
+    #             print("In check for all translations keys exists")
+    #             raise ValueError("Response is missing required keys")
 
-            if len(translations["english_lyrics"]) != len(lyrics_arr) or len(
-                translations["chinese_lyrics"]
-            ) != len(lyrics_arr):
-                print("In check for length of translations dont work")
-                raise ValueError(
-                    f"Number of translated lines does not match the original. "
-                    f"Original: {len(lyrics_arr)}, English: {len(translations['english_lyrics'])}, "
-                    f"Chinese: {len(translations['chinese_lyrics'])}"
-                )
+    #         if len(translations["english_lyrics"]) != len(lyrics_arr) or len(
+    #             translations["chinese_lyrics"]
+    #         ) != len(lyrics_arr):
+    #             print("In check for length of translations dont work")
+    #             raise ValueError(
+    #                 f"Number of translated lines does not match the original. "
+    #                 f"Original: {len(lyrics_arr)}, English: {len(translations['english_lyrics'])}, "
+    #                 f"Chinese: {len(translations['chinese_lyrics'])}"
+    #             )
 
-            # Ensure the output directory exists
-            output_dir = "./output/response_4o_translate/"
-            os.makedirs(output_dir, exist_ok=True)
+    #         # Ensure the output directory exists
+    #         output_dir = "./output/response_4o_translate/"
+    #         os.makedirs(output_dir, exist_ok=True)
 
-            for lang in ["english", "chinese"]:
-                # Save as JSON
-                json_file_path = f"{output_dir}{video_id}_{lang[:3]}.json"
-                with open(json_file_path, "w", encoding="utf-8") as file:
-                    json.dump(
-                        {f"{lang}_lyrics": translations[f"{lang}_lyrics"]},
-                        file,
-                        ensure_ascii=False,
-                        indent=4,
-                    )
-                print(f"{lang.capitalize()} lyrics saved to {json_file_path}")
+    #         for lang in ["english", "chinese"]:
+    #             # Save as JSON
+    #             json_file_path = f"{output_dir}{video_id}_{lang[:3]}.json"
+    #             with open(json_file_path, "w", encoding="utf-8") as file:
+    #                 json.dump(
+    #                     {f"{lang}_lyrics": translations[f"{lang}_lyrics"]},
+    #                     file,
+    #                     ensure_ascii=False,
+    #                     indent=4,
+    #                 )
+    #             print(f"{lang.capitalize()} lyrics saved to {json_file_path}")
 
-                # Save as TXT
-                txt_file_path = f"{output_dir}{video_id}_{lang[:3]}.txt"
-                with open(txt_file_path, "w", encoding="utf-8") as file:
-                    for line in translations[f"{lang}_lyrics"]:
-                        file.write(line + "\n")
-                print(f"{lang.capitalize()} lyrics saved to {txt_file_path}")
+    #             # Save as TXT
+    #             txt_file_path = f"{output_dir}{video_id}_{lang[:3]}.txt"
+    #             with open(txt_file_path, "w", encoding="utf-8") as file:
+    #                 for line in translations[f"{lang}_lyrics"]:
+    #                     file.write(line + "\n")
+    #             print(f"{lang.capitalize()} lyrics saved to {txt_file_path}")
 
-            return translations["english_lyrics"], translations["chinese_lyrics"]
+    #         return translations["english_lyrics"], translations["chinese_lyrics"]
 
-        except Exception as e:
-            print(f"An error occurred in get_translations: {str(e)}")
-            print(
-                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
-            )
-            raise ValueError(
-                "Error in GPT response: " + str(gpt_response.choices[0])
-                if gpt_response
-                else "Unexpected error"
-            )
+    #     except Exception as e:
+    #         print(f"An error occurred in get_translations: {str(e)}")
+    #         print(
+    #             f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+    #         )
+    #         raise ValueError(
+    #             "Error in GPT response: " + str(gpt_response.choices[0])
+    #             if gpt_response
+    #             else "Unexpected error"
+    #         )
 
     #! Helper Function - check video length
     def longer_than_eight_mins(self, info):
@@ -393,6 +393,209 @@ class OpenAIService:
             )
             return None
 
+    # def get_romaji_lyrics(self, lyrics_arr, video_id):
+    #     romaji_messages = [
+    #         romaji_annotation_system_message,
+    #         {
+    #             "role": "user",
+    #             "content": f"以下の日本語の歌詞をローマ字に変換してください。JSON形式で応答してください。歌詞: {json.dumps(lyrics_arr)}",
+    #         },
+    #     ]
+    #     gpt_response = None
+
+    #     try:
+    #         gpt_response = self.client.chat.completions.create(
+    #             model=self.MODEL,
+    #             messages=romaji_messages,
+    #             tools=tools,
+    #             temperature=0.2,
+    #             response_format={"type": "json_object"},
+    #             tool_choice={
+    #                 "type": "function",
+    #                 "function": {"name": "convert_to_romaji"},
+    #             },
+    #         )
+
+    #         if gpt_response.choices[0].message.tool_calls:
+    #             function_call = gpt_response.choices[0].message.tool_calls[0].function
+    #             romaji_lyrics = json.loads(function_call.arguments)
+    #             print("Romaji fn: received gpt response")
+    #             print(gpt_response.choices[0].message.tool_calls)
+    #             print("Romaji fn: end of printing received gpt response")
+
+    #         else:
+    #             raise ValueError("No function call found in the response")
+
+    #         if "romaji" not in romaji_lyrics:
+    #             raise ValueError("Response is missing required keys")
+
+    #         if len(romaji_lyrics["romaji"]) != len(lyrics_arr):
+    #             raise ValueError(
+    #                 f"Number of Romaji lines does not match the original. "
+    #                 f"Original: {len(lyrics_arr)}, Romaji: {len(romaji_lyrics['romaji'])}"
+    #             )
+
+    #         # Ensure the output directory exists
+    #         output_dir = "./output/response_4o_translate/"
+    #         os.makedirs(output_dir, exist_ok=True)
+
+    #         json_file_path = f"{output_dir}{video_id}_romaji.json"
+    #         with open(json_file_path, "w", encoding="utf-8") as file:
+    #             json.dump(
+    #                 {"romaji_lyrics": romaji_lyrics["romaji"]},
+    #                 file,
+    #                 ensure_ascii=False,
+    #                 indent=4,
+    #             )
+    #         print(f"Romaji lyrics saved to {json_file_path}")
+
+    #         # Save as TXT
+    #         txt_file_path = f"{output_dir}{video_id}_romaji.txt"
+    #         with open(txt_file_path, "w", encoding="utf-8") as file:
+    #             for line in romaji_lyrics["romaji"]:
+    #                 file.write(line + "\n")
+    #         print(f"Romaji lyrics saved to {txt_file_path}")
+
+    #         return romaji_lyrics["romaji"]
+
+    #     except Exception as e:
+    #         print(f"An error occurred in get_romaji_lyrics: {str(e)}")
+    #         print(
+    #             f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+    #         )
+    #         return None
+
+    # def get_kanji_annotations(self, lyrics_arr, video_id):
+    #     kanji_messages = [
+    #         kanji_annotation_system_message,
+    #         {
+    #             "role": "user",
+    #             "content": f"Please annotate the following Japanese lyrics with furigana pronunciations. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
+    #         },
+    #     ]
+    #     gpt_response = None
+
+    #     try:
+    #         gpt_response = self.client.chat.completions.create(
+    #             model=self.MODEL,
+    #             messages=kanji_messages,
+    #             tools=tools,
+    #             temperature=0.2,
+    #             response_format={"type": "json_object"},
+    #             tool_choice={
+    #                 "type": "function",
+    #                 "function": {"name": "annotate_with_furigana"},
+    #             },
+    #         )
+
+    #         if gpt_response.choices[0].message.tool_calls:
+    #             function_call = gpt_response.choices[0].message.tool_calls[0].function
+    #             kanji_annotations = json.loads(function_call.arguments)
+    #             print("Kanji fn: received results")
+    #             print(gpt_response.choices[0].message.tool_calls)
+    #         else:
+    #             raise ValueError("No function call found in the response")
+
+    #         if "furigana_ann_lyrics" not in kanji_annotations:
+    #             raise ValueError("Response is missing required keys")
+
+    #         if len(kanji_annotations["furigana_ann_lyrics"]) != len(lyrics_arr):
+    #             raise ValueError(
+    #                 f"Number of annotated lines does not match the original. "
+    #                 f"Original: {len(lyrics_arr)}, Annotated: {len(kanji_annotations['furigana_ann_lyrics'])}"
+    #             )
+
+    #         # Ensure the output directory exists
+    #         output_dir = "./output/response_4o_translate/"
+    #         os.makedirs(output_dir, exist_ok=True)
+
+    #         json_file_path = f"{output_dir}{video_id}_kanji.json"
+    #         with open(json_file_path, "w", encoding="utf-8") as file:
+    #             json.dump(
+    #                 {"kanji_annotations": kanji_annotations["furigana_ann_lyrics"]},
+    #                 file,
+    #                 ensure_ascii=False,
+    #                 indent=4,
+    #             )
+    #         print(f"Kanji annotations saved to {json_file_path}")
+
+    #         # Save as TXT
+    #         txt_file_path = f"{output_dir}{video_id}_kanji.txt"
+    #         with open(txt_file_path, "w", encoding="utf-8") as file:
+    #             for line in kanji_annotations["furigana_ann_lyrics"]:
+    #                 file.write(line + "\n")
+    #         print(f"Kanji annotations saved to {txt_file_path}")
+
+    #         return kanji_annotations["furigana_ann_lyrics"]
+
+    #     except Exception as e:
+    #         print(f"An error occurred in get_kanji_annotations: {str(e)}")
+    #         print(
+    #             f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+    #         )
+    #         return None
+
+    def get_translations(self, lyrics_arr, video_id):
+        messages = [
+            translation_setup_system_message,
+            {
+                "role": "user",
+                "content": f"Translate the following lyrics to English and Chinese. Strictly translate them in 1:1 ratio. You must maintain the same number of lyrics lines. Respond in JSON format. Lyrics: {json.dumps(lyrics_arr)}",
+            },
+        ]
+        gpt_response = None
+
+        try:
+            gpt_response = self.client.chat.completions.create(
+                model=self.MODEL,
+                messages=messages,
+                tools=tools,
+                # TODO: test temperature variance for translation
+                temperature=0.3,
+                response_format={"type": "json_object"},
+                tool_choice={
+                    "type": "function",
+                    "function": {"name": "translate_lyrics"},
+                },
+            )
+
+            if gpt_response.choices[0].message.tool_calls:
+                function_call = gpt_response.choices[0].message.tool_calls[0].function
+                translations = json.loads(function_call.arguments)
+            else:
+                raise ValueError("No function call found in the response")
+
+            if not all(
+                key in translations for key in ["english_lyrics", "chinese_lyrics"]
+            ):
+                raise ValueError("Response is missing required keys")
+
+            if len(translations["english_lyrics"]) != len(lyrics_arr) or len(
+                translations["chinese_lyrics"]
+            ) != len(lyrics_arr):
+                print("Original lyrics arr: ")
+                print("")
+                print(lyrics_arr)
+                raise ValueError(
+                    f"Number of translated lines does not match the original. "
+                    f"Original: {len(lyrics_arr)}, English: {len(translations['english_lyrics'])}, "
+                    f"Chinese: {len(translations['chinese_lyrics'])}"
+                )
+
+            yield "eng_translation", translations["english_lyrics"]
+            yield "chi_translation", translations["chinese_lyrics"]
+
+        except Exception as e:
+            print(f"An error occurred in get_translations: {str(e)}")
+            print(
+                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
+            )
+            raise ValueError(
+                "Error in GPT response: " + str(gpt_response.choices[0])
+                if gpt_response
+                else "Unexpected error"
+            )
+
     def get_romaji_lyrics(self, lyrics_arr, video_id):
         romaji_messages = [
             romaji_annotation_system_message,
@@ -419,10 +622,6 @@ class OpenAIService:
             if gpt_response.choices[0].message.tool_calls:
                 function_call = gpt_response.choices[0].message.tool_calls[0].function
                 romaji_lyrics = json.loads(function_call.arguments)
-                print("Romaji fn: received gpt response")
-                print(gpt_response.choices[0].message.tool_calls)
-                print("Romaji fn: end of printing received gpt response")
-
             else:
                 raise ValueError("No function call found in the response")
 
@@ -435,35 +634,14 @@ class OpenAIService:
                     f"Original: {len(lyrics_arr)}, Romaji: {len(romaji_lyrics['romaji'])}"
                 )
 
-            # Ensure the output directory exists
-            output_dir = "./output/response_4o_translate/"
-            os.makedirs(output_dir, exist_ok=True)
-
-            json_file_path = f"{output_dir}{video_id}_romaji.json"
-            with open(json_file_path, "w", encoding="utf-8") as file:
-                json.dump(
-                    {"romaji_lyrics": romaji_lyrics["romaji"]},
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-            print(f"Romaji lyrics saved to {json_file_path}")
-
-            # Save as TXT
-            txt_file_path = f"{output_dir}{video_id}_romaji.txt"
-            with open(txt_file_path, "w", encoding="utf-8") as file:
-                for line in romaji_lyrics["romaji"]:
-                    file.write(line + "\n")
-            print(f"Romaji lyrics saved to {txt_file_path}")
-
-            return romaji_lyrics["romaji"]
+            yield "romaji_lyrics", romaji_lyrics["romaji"]
 
         except Exception as e:
             print(f"An error occurred in get_romaji_lyrics: {str(e)}")
             print(
                 f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
-            return None
+            raise ValueError("Error in getting Romaji lyrics")
 
     def get_kanji_annotations(self, lyrics_arr, video_id):
         kanji_messages = [
@@ -491,8 +669,6 @@ class OpenAIService:
             if gpt_response.choices[0].message.tool_calls:
                 function_call = gpt_response.choices[0].message.tool_calls[0].function
                 kanji_annotations = json.loads(function_call.arguments)
-                print("Kanji fn: received results")
-                print(gpt_response.choices[0].message.tool_calls)
             else:
                 raise ValueError("No function call found in the response")
 
@@ -505,35 +681,14 @@ class OpenAIService:
                     f"Original: {len(lyrics_arr)}, Annotated: {len(kanji_annotations['furigana_ann_lyrics'])}"
                 )
 
-            # Ensure the output directory exists
-            output_dir = "./output/response_4o_translate/"
-            os.makedirs(output_dir, exist_ok=True)
-
-            json_file_path = f"{output_dir}{video_id}_kanji.json"
-            with open(json_file_path, "w", encoding="utf-8") as file:
-                json.dump(
-                    {"kanji_annotations": kanji_annotations["furigana_ann_lyrics"]},
-                    file,
-                    ensure_ascii=False,
-                    indent=4,
-                )
-            print(f"Kanji annotations saved to {json_file_path}")
-
-            # Save as TXT
-            txt_file_path = f"{output_dir}{video_id}_kanji.txt"
-            with open(txt_file_path, "w", encoding="utf-8") as file:
-                for line in kanji_annotations["furigana_ann_lyrics"]:
-                    file.write(line + "\n")
-            print(f"Kanji annotations saved to {txt_file_path}")
-
-            return kanji_annotations["furigana_ann_lyrics"]
+            yield "kanji_annotations", kanji_annotations["furigana_ann_lyrics"]
 
         except Exception as e:
             print(f"An error occurred in get_kanji_annotations: {str(e)}")
             print(
                 f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
-            return None
+            raise ValueError("Error in getting Kanji annotations")
 
     def stream_conversation_test(self):
 
@@ -584,7 +739,7 @@ class OpenAIService:
                 tools=tools,
                 stream=True,
                 stream_options={"include_usage": True},
-                temperature=0,
+                temperature=0.7,
                 response_format={"type": "json_object"},
                 tool_choice={
                     "type": "function",

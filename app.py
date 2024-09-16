@@ -171,75 +171,131 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                # Translation process with retry mechanism
-                MAX_RETRIES = 3
-                retry_count = 0
-                eng_translation, chi_translation = None, None
+                # Define the base directory for cached translations
+                cache_dir = "./output/cached_translations"
+                os.makedirs(cache_dir, exist_ok=True)
 
-                while retry_count < MAX_RETRIES:
-                    try:
-                        yield utils.stream_message(
-                            "update",
-                            f"Attempting translations (try {retry_count + 1}/{MAX_RETRIES})...",
-                        )
-                        eng_translation, chi_translation = (
-                            openai_service.get_translations(
+                # Define cache paths
+                eng_cache_path = os.path.join(cache_dir, f"{video_id}_eng.txt")
+                chi_cache_path = os.path.join(cache_dir, f"{video_id}_chi.txt")
+                romaji_cache_path = os.path.join(cache_dir, f"{video_id}_romaji.txt")
+                kanji_cache_path = os.path.join(cache_dir, f"{video_id}_kanji.txt")
+
+                # Function to read cached data
+                def read_cached_data(path):
+                    if os.path.exists(path):
+                        with open(path, "r", encoding="utf-8") as f:
+                            return f.read().splitlines()
+                    return None
+
+                # Read cached data
+                eng_translation = read_cached_data(eng_cache_path)
+                chi_translation = read_cached_data(chi_cache_path)
+                romaji_lyrics = read_cached_data(romaji_cache_path)
+                kanji_annotations = read_cached_data(kanji_cache_path)
+
+                # Check and generate translations if needed
+                if eng_translation is None or chi_translation is None:
+                    yield utils.stream_message("update", "Generating translations...")
+                    MAX_RETRIES = 3
+                    retry_count = 0
+                    translations_completed = False
+
+                    while retry_count < MAX_RETRIES and not translations_completed:
+                        try:
+                            for (
+                                translation_type,
+                                translation,
+                            ) in openai_service.get_translations(
                                 timestamped_lyrics, video_id
-                            )
-                        )
-                        if eng_translation and chi_translation:
+                            ):
+                                if translation_type == "eng_translation":
+                                    eng_translation = translation
+                                    with open(
+                                        eng_cache_path, "w", encoding="utf-8"
+                                    ) as f:
+                                        f.write("\n".join(eng_translation))
+                                elif translation_type == "chi_translation":
+                                    chi_translation = translation
+                                    with open(
+                                        chi_cache_path, "w", encoding="utf-8"
+                                    ) as f:
+                                        f.write("\n".join(chi_translation))
+                                yield utils.stream_message(
+                                    translation_type, translation
+                                )
+
+                            translations_completed = True
                             yield utils.stream_message(
                                 "update", "Translations completed successfully."
                             )
-                            break
+                        except ValueError as e:
+                            retry_count += 1
+                            if retry_count == MAX_RETRIES:
+                                yield utils.stream_message(
+                                    "error",
+                                    "Max retries reached. Unable to get translations.",
+                                )
+                                return
+                            else:
+                                yield utils.stream_message(
+                                    "update",
+                                    f"Retrying translation (attempt {retry_count + 1})...",
+                                )
+                else:
+                    yield utils.stream_message("update", "Using cached translations...")
+                    yield utils.stream_message("eng_translation", eng_translation)
+                    yield utils.stream_message("chi_translation", chi_translation)
+
+                # Generate Romaji lyrics if needed
+                if romaji_lyrics is None:
+                    yield utils.stream_message("update", "Generating romaji lyrics...")
+                    try:
+                        for (
+                            romaji_type,
+                            romaji_lyrics_part,
+                        ) in openai_service.get_romaji_lyrics(lyrics_arr, video_id):
+                            romaji_lyrics = romaji_lyrics_part
+                            yield utils.stream_message(romaji_type, romaji_lyrics)
+
+                        with open(romaji_cache_path, "w", encoding="utf-8") as f:
+                            f.write("\n".join(romaji_lyrics))
                     except ValueError as e:
                         yield utils.stream_message(
-                            "update",
-                            f"Translation attempt {retry_count + 1} failed: {str(e)}",
+                            "error", f"Romaji generation failed: {str(e)}"
                         )
-                        retry_count += 1
-                        if retry_count == MAX_RETRIES:
-                            yield utils.stream_message(
-                                "error",
-                                "Max retries reached. Unable to get translations.",
-                            )
-                            return
-                        else:
-                            yield utils.stream_message(
-                                "update",
-                                f"Retrying translation (attempt {retry_count + 1})...",
-                            )
-
-                if eng_translation is None or chi_translation is None:
-                    yield utils.stream_message("error", "Translation failed")
-                    return
-
-                # Romaji lyrics
-                yield utils.stream_message("update", "Generating romaji lyrics...")
-                romaji_lyrics = openai_service.get_romaji_lyrics(lyrics_arr, video_id)
-
-                # Kanji annotations
-                yield utils.stream_message("update", "Generating kanji annotations...")
-                kanji_annotations = openai_service.get_kanji_annotations(
-                    lyrics_arr, video_id
-                )
-
-                if romaji_lyrics is None or kanji_annotations is None:
+                        return
+                else:
                     yield utils.stream_message(
-                        "error", "Romaji or kanji annotation failed"
+                        "update", "Using cached romaji lyrics..."
                     )
-                    return
+                    yield utils.stream_message("romaji_lyrics", romaji_lyrics)
 
-                # Send final results
-                yield utils.stream_message(
-                    "result",
-                    {
-                        "eng_translation": eng_translation,
-                        "chi_translation": chi_translation,
-                        "romaji_lyrics": romaji_lyrics,
-                        "kanji_annotations": kanji_annotations,
-                    },
-                )
+                # Generate Kanji annotations if needed
+                if kanji_annotations is None:
+                    yield utils.stream_message(
+                        "update", "Generating kanji annotations..."
+                    )
+                    try:
+                        for (
+                            kanji_type,
+                            kanji_annotations_part,
+                        ) in openai_service.get_kanji_annotations(lyrics_arr, video_id):
+                            kanji_annotations = kanji_annotations_part
+                            yield utils.stream_message(kanji_type, kanji_annotations)
+
+                        with open(kanji_cache_path, "w", encoding="utf-8") as f:
+                            f.write("\n".join(kanji_annotations))
+                    except ValueError as e:
+                        yield utils.stream_message(
+                            "error", f"Kanji annotation failed: {str(e)}"
+                        )
+                        return
+                else:
+                    yield utils.stream_message(
+                        "update", "Using cached kanji annotations..."
+                    )
+                    yield utils.stream_message("kanji_annotations", kanji_annotations)
 
                 yield utils.stream_message(
                     "update", "Translation and annotation process completed."
@@ -294,7 +350,9 @@ def transcription_endpoint():
     retry_count = 0
 
     lyrics_arr = transcription["lyrics"]
+    print(lyrics_arr)
     timestamped_lyrics = transcription["timestamped_lyrics"]
+    print(timestamped_lyrics)
 
     eng_translation, chi_translation = None, None
 
