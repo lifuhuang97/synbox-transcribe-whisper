@@ -15,7 +15,9 @@ transcription_filter_srt_array = [
     "【 】",
     "µµµ",
     "�",
-    " 歌詞のない部分は",
+    "歌詞のない部分",
+    "字幕の誤りは",
+    "Instagram Hodori",
     "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
     "ªªªªªªªªªªªªªªªªªªªªª",
     "字幕閲覧ありがとうございました",
@@ -101,7 +103,7 @@ def process_subtitle_file(
     file_format: str,
     exclude_strings: List[str] = transcription_filter_srt_array,
     max_duration: float = 30,
-    max_lyric_length: int = 20,
+    max_lyric_length: int = 50,
     apply_error_checks: bool = False,
 ) -> Dict[str, Any]:
 
@@ -113,14 +115,19 @@ def process_subtitle_file(
         h, m, s = time_str.split(":")
         return float(h) * 3600 + float(m) * 60 + float(s)
 
-    def process_subtitle(content: str, subtitle_format: str) -> List[Dict[str, Any]]:
+    def process_subtitle(
+        content: str,
+        subtitle_format: str,
+        exclude_strings: List[str],
+        apply_filters: bool = True,
+    ) -> List[Dict[str, Any]]:
         timestamped_lyrics = []
 
-        if subtitle_format == "srt" or subtitle_format == ".srt":
+        if subtitle_format.lower() in ["srt", ".srt"]:
             pattern = r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)\n((?:.+\n?)+)"
-        elif subtitle_format == "vtt" or subtitle_format == ".vtt":
+        elif subtitle_format.lower() in ["vtt", ".vtt"]:
             pattern = r"(\d+:\d+:\d+\.\d+) --> (\d+:\d+:\d+\.\d+)\n((?:.+\n?)+)"
-        elif subtitle_format in ["ass", "ssa", ".ssa", ".ass"]:
+        elif subtitle_format.lower() in ["ass", "ssa", ".ssa", ".ass"]:
             pattern = r"Dialogue: [^,]*,(\d+:\d+:\d+\.\d+),(\d+:\d+:\d+\.\d+),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)"
         else:
             raise ValueError(f"Unsupported subtitle format: {subtitle_format}")
@@ -132,15 +139,17 @@ def process_subtitle_file(
 
             duration = round(end_time - start_time, 3)
 
-            if not apply_error_checks or (
-                not any(exclude_str in lyric for exclude_str in exclude_strings)
-                and not (duration >= max_duration and len(lyric) > 20)
+            # Apply filtering based on exclude_strings
+            if apply_filters and any(
+                exclude_str in lyric for exclude_str in exclude_strings
+            ):
+                continue
+
+            if not apply_filters or (
+                not (duration >= max_duration and len(lyric) > 20)
                 and not (len(lyric) > max_lyric_length)
             ):
-                if (
-                    len(lyric) > max_lyric_length and " " in lyric
-                ):  # Check if there is a space
-                    # Split long lyrics into multiple SRT blocks
+                if len(lyric) > max_lyric_length and " " in lyric:
                     words = lyric.split()
                     current_line = ""
                     lines = []
@@ -183,11 +192,19 @@ def process_subtitle_file(
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
-    # Process subtitles
-    timestamped_lyrics = process_subtitle(content, file_format)
+    # Process subtitles with filters
+    timestamped_lyrics = process_subtitle(
+        content, file_format, exclude_strings, apply_filters=True
+    )
 
-    # Check for repeated content if apply_error_checks is True
-    if apply_error_checks:
+    # If all content was filtered out, process without filters
+    if not timestamped_lyrics:
+        timestamped_lyrics = process_subtitle(
+            content, file_format, exclude_strings, apply_filters=False
+        )
+
+    # Check for repeated content if apply_error_checks is True and timestamped_lyrics is not empty
+    if apply_error_checks and timestamped_lyrics:
         content_count = {}
         for item in timestamped_lyrics:
             content = item["lyric"]

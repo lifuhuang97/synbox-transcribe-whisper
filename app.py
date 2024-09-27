@@ -207,7 +207,7 @@ def translate_annotate_endpoint():
                                 translation_type,
                                 translation,
                             ) in openai_service.get_translations(
-                                timestamped_lyrics, video_id
+                                timestamped_lyrics, video_id, retry_count
                             ):
                                 if translation_type == "eng_translation":
                                     eng_translation = translation
