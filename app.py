@@ -1,14 +1,13 @@
-import glob
 import json
 import sys
 import os
-import re
 import time
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS
 
+from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
 
@@ -22,6 +21,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 openai_service = OpenAIService(api_key=os.getenv("OPENAI_KEY"))
 appwrite_service = AppwriteService()
+romaji_annotator = RomajiAnnotator(api_key=os.getenv("OPENAI_KEY"))
 
 
 @app.route("/")
@@ -29,71 +29,56 @@ def init_page():
     return "Hey"
 
 
-@app.route("/test", methods=["OPTIONS", "POST"])
-def test_endpoint():
-    if request.method == "OPTIONS":
-        response = app.make_response("")
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-        return response
-
-    def generate():
-        if request.method == "POST":
-            yield utils.stream_message("update", "Step One")
-            time.sleep(1)
-            yield utils.stream_message("data", "Data Fragment 1...")
-            time.sleep(1)
-            yield utils.stream_message("data", "Data Fragment 2...")
-            # time.sleep(1)
-            # yield utils.stream_message("error", "Something went wrong...")
-            time.sleep(1)
-            yield utils.stream_message("update", "Video validation completed")
-            time.sleep(1)
-            yield utils.stream_message(
-                "vid_info",
-                {
-                    "id": "NDwqZIXOvKw",
-                    "title": "【MV】KANA-BOON 『シルエット』",
-                    "author": "KANA-BOON",
-                    "views": 2000000,
-                    "duration": 200,
-                },
-            )
-            time.sleep(1)
-            yield utils.stream_message("update", "Ending...")
-
-    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
-
-
 #! Step 1
 @app.route("/validate", methods=["OPTIONS", "POST"])
 def validation_endpoint():
     if request.method == "OPTIONS":
-        response = app.make_response("")
+        response = app.make_default_options_response()
         response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
         response.headers.add("Access-Control-Allow-Headers", "Content-Type")
         return response
 
     def generate():
         if request.method == "POST":
-            yield utils.stream_message("update", "Receiving Updates...")
-            time.sleep(2)
-            yield utils.stream_message("update", "Retrieving video information...")
+            yield utils.stream_message("update", "Initializing...")
+            time.sleep(0.5)
+            yield utils.stream_message("update", "Parsing request data...")
+            time.sleep(0.5)
+
             try:
-                # Extract the query parameter
                 data = request.json
-                print("Data: ", data)
                 video_id = data.get("id")
+
+                if not video_id:
+                    raise ValueError("Invalid or missing video ID in request.")
+
+                yield utils.stream_message(
+                    "update",
+                    f"Video ID {video_id} received.",
+                )
+                time.sleep(1)
+
+                yield utils.stream_message("update", "Fetching video data...")
+                time.sleep(1.5)
 
                 for update in openai_service.validate_video(video_id):
                     yield update
 
-                yield utils.stream_message("update", "Validation complete.")
+                yield utils.stream_message("update", "Finalizing validation process...")
+                time.sleep(0.5)
 
+                yield utils.stream_message(
+                    "success",
+                    "Validation complete.",
+                )
+
+            except ValueError as ve:
+                yield utils.stream_message("error", f"Validation Error: {str(ve)}")
             except Exception as e:
-                yield utils.stream_message("error", str(e))
+                yield utils.stream_message(
+                    "error", f"An unexpected error occurred: {str(e)}"
+                )
 
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
@@ -234,7 +219,7 @@ def translate_annotate_endpoint():
                             if retry_count == MAX_RETRIES:
                                 yield utils.stream_message(
                                     "error",
-                                    "Max retries reached. Unable to get translations.",
+                                    f"Max retries reached. Unable to get translations. Error: {e}",
                                 )
                                 return
                             else:
@@ -252,18 +237,27 @@ def translate_annotate_endpoint():
                     yield utils.stream_message("update", "Generating romaji lyrics...")
                     try:
                         for (
-                            romaji_type,
-                            romaji_lyrics_part,
-                        ) in openai_service.get_romaji_lyrics(lyrics_arr, video_id):
-                            romaji_lyrics = romaji_lyrics_part
-                            yield utils.stream_message(romaji_type, romaji_lyrics)
+                            message_type,
+                            message_content,
+                        ) in romaji_annotator.get_romaji_lyrics(lyrics_arr, video_id):
+                            if message_type == "romaji_lyrics":
+                                romaji_lyrics = message_content
+                                yield utils.stream_message(message_type, romaji_lyrics)
 
-                        with open(romaji_cache_path, "w", encoding="utf-8") as f:
-                            f.write("\n".join(romaji_lyrics))
-                    except ValueError as e:
-                        yield utils.stream_message(
-                            "error", f"Romaji generation failed: {str(e)}"
-                        )
+                                with open(
+                                    romaji_cache_path, "w", encoding="utf-8"
+                                ) as f:
+                                    f.write("\n".join(romaji_lyrics))
+                            elif message_type == "error":
+                                yield utils.stream_message(
+                                    "error",
+                                    f"Romaji generation failed: {message_content}",
+                                )
+                                pass
+                    except ValueError:
+                        # yield utils.stream_message(
+                        #     "error", f"Romaji generation failed: {str(e)}"
+                        # )
                         return
                 else:
                     yield utils.stream_message(

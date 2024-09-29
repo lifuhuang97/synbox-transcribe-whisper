@@ -56,6 +56,8 @@ class OpenAIService:
 
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
 
+        yield utils.stream_message("update", "Analyzing Audio...")
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 error_code = ydl.download(full_vid_url)
@@ -78,7 +80,6 @@ class OpenAIService:
 
         result["audio_file_path"] = "./output/track/" + video_id + ".m4a"
         info_file_path = "./output/track/" + video_id + ".info.json"
-        yield utils.stream_message("update", "Analyzing Video...")
 
         try:
             with open(info_file_path, "r", encoding="utf-8") as file:
@@ -317,12 +318,15 @@ class OpenAIService:
         ]
         gpt_response = None
 
+        print("This is romaji lyrics received lyrics arr")
+        print(lyrics_arr)
+
         try:
             gpt_response = self.client.chat.completions.create(
                 model=self.MODEL,
                 messages=romaji_messages,
                 tools=tools,
-                temperature=0.2,
+                temperature=0.25,
                 response_format={"type": "json_object"},
                 tool_choice={
                     "type": "function",
@@ -349,6 +353,11 @@ class OpenAIService:
 
         except Exception as e:
             print(f"An error occurred in get_romaji_lyrics: {str(e)}")
+            for i, (original, romaji) in enumerate(
+                zip(lyrics_arr, romaji_lyrics["romaji"])
+            ):
+                print(f"Line {i + 1} Original: {original} | Romaji: {romaji}")
+
             print(
                 f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
