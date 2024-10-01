@@ -168,7 +168,7 @@ class OpenAIService:
                 prompt=whisper_prompt,
                 response_format="srt",
                 timestamp_granularities=["segment"],
-                temperature=0.37,
+                temperature=0.77,
             )
 
             print(transcription)
@@ -225,9 +225,6 @@ class OpenAIService:
 
             if "decision" not in verdict:
                 raise ValueError("Response is missing required keys")
-
-            # print("This is decision")
-            # print(verdict["decision"])
 
             affirmative_responses = {"y", "yes"}
             if verdict["decision"].strip().lower() in affirmative_responses:
@@ -409,134 +406,3 @@ class OpenAIService:
                 f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
             raise ValueError("Error in getting Kanji annotations")
-
-    def stream_conversation_test(self):
-
-        def generate():
-            yield json.dumps({"status": "Starting transcription"})
-
-            stream = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "Write me a 10 line poem about a sunset, separated into multiple lines in the response",
-                    },
-                ],
-                temperature=0.2,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
-
-            for chunk in stream:
-                if chunk.choices != [] and chunk.choices[0].delta.content is not None:
-                    yield json.dumps(
-                        {
-                            "type": "gpt_response",
-                            "content": chunk.choices[0].delta.content,
-                        }
-                    )
-                    print("yielded: " + chunk.choices[0].delta.content)
-
-            yield json.dumps({"status": "Translation complete"})
-
-        return generate()
-
-    def get_eng_translation_test(self, lyrics_arr):
-        # TODO: This is a test function for streaming, use it later
-        print("This is lyrics arr")
-        print(lyrics_arr)
-
-        messages = [
-            translation_setup_system_message,
-            {"role": "user", "content": json.dumps(lyrics_arr["timestamped_lyrics"])},
-        ]
-
-        def generate():
-            stream = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=messages,
-                tools=tools,
-                stream=True,
-                stream_options={"include_usage": True},
-                temperature=0.7,
-                response_format={"type": "json_object"},
-                tool_choice={
-                    "type": "function",
-                    "function": {"name": "translate_lyrics"},
-                },
-            )
-
-            for chunk in stream:
-                # Chunk:
-                # ChatCompletionChunk(id='chatcmpl-9hXM9enudt3ToDK2Y4hxMKlKBfhm7',
-                # choices=[Choice(delta=ChoiceDelta(content=None,
-                # function_call=None, role=None,
-                # tool_calls=[ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments='暗', name=None),
-                # type=None)]), finish_reason=None, index=0, logprobs=None)],
-                # created=1720163353, model='gpt-4o-2024-05-13',
-                # object='chat.completion.chunk',
-                # service_tier=None,
-                # system_fingerprint='fp_d576307f90',
-                # usage=None)
-                # print("Chunk: ")
-                # print(chunk)
-                if chunk.choices and chunk.choices[0].delta:
-                    delta = chunk.choices[0].delta
-                    if delta.content is not None:
-                        yield json.dumps(
-                            {
-                                "type": "translation_chunk",
-                                "content": delta.content,
-                            }
-                        )
-                    elif delta.tool_calls:
-                        for tool_call in delta.tool_calls:
-                            if (
-                                tool_call.function
-                                and tool_call.function.arguments is not None
-                            ):
-                                yield json.dumps(
-                                    {
-                                        "type": "tool_call_chunk",
-                                        "content": tool_call.function.arguments,
-                                    }
-                                )
-                elif chunk.choices and not chunk.choices[0].delta:
-                    if chunk.choices[0].finish_reason == "stop":
-                        print("<<< IN TRANSLATION COMPLETE BLOCK >>>")
-                        yield json.dumps(
-                            {
-                                "type": "translation_complete",
-                                "content": "Translation complete",
-                            }
-                        )
-                else:
-                    print("<<< IN ELSE BLOCK, LAST CHUNK >>>")
-                    print(chunk)
-                    if chunk.usage:
-                        completion_tokens = chunk.usage.completion_tokens
-                        prompt_tokens = chunk.usage.prompt_tokens
-                        total_tokens = chunk.usage.total_tokens
-                        usage_summary = f"Usage Summary: Completion Tokens = {completion_tokens}, Prompt Tokens = {prompt_tokens}, Total Tokens = {total_tokens}"
-                        yield json.dumps(
-                            {
-                                "type": "usage_summary",
-                                "content": usage_summary,
-                            }
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "plain_orig_lyrics",
-                                "content": lyrics_arr["lyrics"],
-                            }
-                        )
-                    else:
-                        yield json.dumps(
-                            {
-                                "type": "system_error",
-                                "content": "Something broke during the translation process, please try again",
-                            }
-                        )
-
-        return generate()

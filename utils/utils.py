@@ -2,6 +2,8 @@ import json
 import re
 from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Any
+import os
+import glob
 
 transcription_filter_srt_array = [
     "初音ミク",
@@ -32,6 +34,31 @@ def concatenate_strings(string_array):
     string_array = [str(item) for item in string_array]  # Convert all items to strings
     result = "\n".join(string_array)
     return result
+
+
+def is_likely_japanese(text: str) -> bool:
+    return any(
+        "\u4e00" <= char <= "\u9fff"
+        or "\u3040" <= char <= "\u309f"
+        or "\u30a0" <= char <= "\u30ff"
+        for char in text
+    )
+
+
+def process_japanese_subtitle(lyric_block: str) -> str:
+    lyric_lines = lyric_block.split("\n")
+    if len(lyric_lines) > 1:
+        filtered_lines = []
+        for i, line in enumerate(lyric_lines):
+            if is_likely_japanese(line):
+                filtered_lines.append(line)
+                # If the next line exists and is likely romaji, skip it
+                if i + 1 < len(lyric_lines) and not is_likely_japanese(
+                    lyric_lines[i + 1]
+                ):
+                    continue
+        return " ".join(filtered_lines)
+    return lyric_block
 
 
 # ? Returns videoID no matter if it's a youtube URL or just the videoID
@@ -135,7 +162,10 @@ def process_subtitle_file(
         for match in re.finditer(pattern, content, re.MULTILINE):
             start_time = round(parse_time(match.group(1)), 3)
             end_time = round(parse_time(match.group(2)), 3)
-            lyric = match.group(3).strip().replace("\n", " ")
+            lyric_block = match.group(3).strip()
+
+            # Process Japanese subtitles
+            lyric = process_japanese_subtitle(lyric_block)
 
             duration = round(end_time - start_time, 3)
 
@@ -236,3 +266,37 @@ def process_subtitle_file(
 
 def stream_message(type: str, data: str):
     return json.dumps({"type": type, "data": data}) + "\n"
+
+
+def cleanup_files(video_id):
+    # Define paths to clean up
+    paths_to_clean = [
+        f"./output/cached_translations/{video_id}_*.txt",
+        f"./output/response_srt/{video_id}.srt",
+        f"./output/track/{video_id}.*",
+    ]
+
+    for path in paths_to_clean:
+        for file in glob.glob(path):
+            try:
+                os.remove(file)
+                print(f"Removed: {file}")
+            except Exception as e:
+                print(f"Error removing {file}: {str(e)}")
+
+    # Check if the directories are empty and remove them if they are
+    directories_to_check = [
+        "./output/cached_translations",
+        "./output/response_srt",
+        "./output/track",
+    ]
+
+    for directory in directories_to_check:
+        if os.path.exists(directory) and not os.listdir(directory):
+            try:
+                os.rmdir(directory)
+                print(f"Removed empty directory: {directory}")
+            except Exception as e:
+                print(f"Error removing directory {directory}: {str(e)}")
+
+    print("Cleanup completed.")
