@@ -132,12 +132,47 @@ def process_subtitle_file(
         else:
             raise ValueError(f"Unsupported subtitle format: {subtitle_format}")
 
+        def is_likely_japanese(text: str) -> bool:
+            # Check if the text contains Japanese characters
+            return any(
+                "\u4e00" <= char <= "\u9fff"
+                or "\u3040" <= char <= "\u309f"
+                or "\u30a0" <= char <= "\u30ff"
+                for char in text
+            )
+
+        def is_likely_romaji(text: str) -> bool:
+            # Check if the text is mostly Latin characters and doesn't contain Japanese characters
+            return (
+                not is_likely_japanese(text)
+                and sum(1 for c in text if c.isascii() and c.isalpha()) / len(text)
+                > 0.7
+            )
+
         for match in re.finditer(pattern, content, re.MULTILINE):
             start_time = round(parse_time(match.group(1)), 3)
             end_time = round(parse_time(match.group(2)), 3)
-            lyric = match.group(3).strip().replace("\n", " ")
+            lyric_block = match.group(3).strip()
 
             duration = round(end_time - start_time, 3)
+
+            # Split the lyric block into lines
+            lyric_lines = lyric_block.split("\n")
+
+            # Process multi-line blocks
+            if len(lyric_lines) > 1:
+                filtered_lines = []
+                for i in range(len(lyric_lines)):
+                    if is_likely_japanese(lyric_lines[i]):
+                        filtered_lines.append(lyric_lines[i])
+                        # If the next line exists and is likely romaji, skip it
+                        if i + 1 < len(lyric_lines) and is_likely_romaji(
+                            lyric_lines[i + 1]
+                        ):
+                            continue
+                lyric = " ".join(filtered_lines)
+            else:
+                lyric = lyric_lines[0]
 
             # Apply filtering based on exclude_strings
             if apply_filters and any(
