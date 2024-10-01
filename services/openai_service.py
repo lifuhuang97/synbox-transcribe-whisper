@@ -1,7 +1,6 @@
 import os
 import glob
 import json
-import time
 from openai import OpenAI
 import yt_dlp
 from utils import utils
@@ -156,23 +155,8 @@ class OpenAIService:
 
         # Check if the .srt file already exists
         if os.path.exists(srt_save_path):
-            print(
-                f"Existing .srt file found for {video_id}. Validating and cleaning..."
-            )
-            with open(srt_save_path, "r", encoding="utf-8") as file:
-                existing_lyrics = file.read()
-
-            cleaned_lyrics = self.clean_and_validate_lyrics(existing_lyrics)
-            if cleaned_lyrics:
-                print(
-                    "Existing lyrics validated and cleaned. Overwriting original file."
-                )
-                # Overwrite the original file with cleaned lyrics
-                with open(srt_save_path, "w", encoding="utf-8") as file:
-                    file.write("\n".join(cleaned_lyrics))
-                return srt_save_path
-            else:
-                print("Existing lyrics invalid. Proceeding with transcription.")
+            print(f"Existing .srt file found for {video_id}. Using the existing file.")
+            return srt_save_path
 
         with open(audio_file_path, "rb") as audio_file:
             # TODO: change parameters to try to deal with fast songs
@@ -184,8 +168,6 @@ class OpenAIService:
                 prompt=whisper_prompt,
                 response_format="srt",
                 timestamp_granularities=["segment"],
-                # 0.37 works well in general
-                # temperature=0.77,
                 temperature=0.37,
             )
 
@@ -193,18 +175,6 @@ class OpenAIService:
             print("Above is transcription")
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
-
-            # Clean and validate the new transcription
-            cleaned_transcription = self.clean_and_validate_lyrics(transcription)
-
-            if cleaned_transcription:
-                print("New transcription cleaned and validated.")
-                with open(srt_save_path, "w", encoding="utf-8") as output_file:
-                    output_file.write("\n".join(cleaned_transcription))
-            else:
-                print("Warning: New transcription may contain non-Japanese content.")
-                with open(srt_save_path, "w", encoding="utf-8") as output_file:
-                    output_file.write(transcription)
 
         print("GPT Transcription generated, processed, and saved successfully")
 
@@ -570,40 +540,3 @@ class OpenAIService:
                         )
 
         return generate()
-
-    def clean_and_validate_lyrics(self, srt_content):
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a Japanese lyrics specialist. Your task is to clean and validate Japanese song lyrics in SRT format.",
-            },
-            {
-                "role": "user",
-                "content": f"""
-    Clean the following SRT-formatted lyrics. Keep only Japanese characters and any English words that are part of the lyrics.
-    Remove any romaji translations. Preserve the SRT structure including timecodes and line numbers.
-    If the lyrics are not primarily in Japanese, return an empty string.
-    SRT content:
-    {srt_content}
-    """,
-            },
-        ]
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=messages,
-                temperature=0.2,
-            )
-
-            cleaned_srt = response.choices[0].message.content.strip()
-
-            # If the cleaned lyrics are empty or significantly shorter, assume they're invalid
-            if not cleaned_srt or len(cleaned_srt) < len(srt_content) * 0.5:
-                return None
-
-            return cleaned_srt
-
-        except Exception as e:
-            print(f"An error occurred in clean_and_validate_lyrics: {str(e)}")
-            return None

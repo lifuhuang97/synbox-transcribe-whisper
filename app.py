@@ -104,7 +104,6 @@ def transcription_endpoint_v2():
 
             try:
                 if subtitle_exist:
-                    time.sleep(3)
                     subtitle_file_path = subtitle_info["path"]
                     subtitle_ext = subtitle_info["ext"]
 
@@ -400,6 +399,23 @@ def transcription_endpoint():
             "kanji_annotations": kanji_annotations,
         }
     )
+
+
+# @app.route("/stream_conversation", methods=["POST"])
+@app.route("/stream_conversation")
+def stream_conversation():
+    def generate():
+
+        srt_path = "./output/track/NDwqZIXOvKw.ja.vtt"
+
+        transcription = utils.process_subtitle_file(
+            srt_path, "vtt", apply_error_checks=False
+        )
+        response = openai_service.get_eng_translation_test(transcription)
+        for chunk in response:
+            yield f"data: {json.dumps({'content': chunk})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
 
 
 if __name__ == "__main__":
