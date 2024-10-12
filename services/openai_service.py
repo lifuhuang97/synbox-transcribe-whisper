@@ -4,6 +4,8 @@ import json
 from openai import OpenAI
 import yt_dlp
 from utils import utils
+import re
+import unicodedata
 
 from config import (
     TOOLS,
@@ -25,7 +27,7 @@ whisper_prompt = WHISPER_PROMPT
 class OpenAIService:
     def __init__(self, api_key):
         self.client = OpenAI(api_key=api_key)
-        self.MODEL = "gpt-4o"
+        self.MODEL = "gpt-4o-mini"
 
     def validate_video(self, video_id):
         result = {
@@ -42,7 +44,7 @@ class OpenAIService:
             "format": "m4a/bestaudio/best",
             "writesubtitles": True,
             "subtitlesformat": "vtt/srt/ass/ssa",
-            "subtitleslangs": ["ja"],
+            "subtitleslangs": ["ja.*"],
             "break_on_reject": True,
             "writeinfojson": True,
             "postprocessors": [
@@ -52,11 +54,14 @@ class OpenAIService:
                 }
             ],
             "outtmpl": "./output/track/%(id)s.%(ext)s",
+            "subtitlesoutopt": "./output/track/%(id)s.%(ext)s",
         }
 
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
 
         yield utils.stream_message("update", "Analyzing Audio...")
+
+        files_before = set(os.listdir("./output/track"))
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -77,6 +82,26 @@ class OpenAIService:
                 )
             yield utils.stream_message("error", result["error_msg"])
             return
+
+        # Get the list of files after download
+        files_after = set(os.listdir("./output/track"))
+
+        # Find new files
+        new_files = files_after - files_before
+
+        # Look for new subtitle files
+        subtitle_extensions = (".vtt", ".srt", ".ass", ".ssa")
+        for file in new_files:
+            if file.endswith(subtitle_extensions) and video_id in file:
+                old_path = os.path.join("./output/track", file)
+                _, ext = os.path.splitext(file)
+                new_filename = f"{video_id}.ja{ext}"
+                new_path = os.path.join("./output/track", new_filename)
+                os.rename(old_path, new_path)
+                result["subtitle_info"]["exist"] = True
+                result["subtitle_info"]["path"] = new_path
+                result["subtitle_info"]["ext"] = ext
+                break
 
         result["audio_file_path"] = "./output/track/" + video_id + ".m4a"
         info_file_path = "./output/track/" + video_id + ".info.json"
@@ -169,10 +194,16 @@ class OpenAIService:
                 response_format="srt",
                 timestamp_granularities=["segment"],
                 temperature=0.77,
+                # temperature=0.77,
+                # 0.37 0.77 0.82
             )
 
             print(transcription)
             print("Above is transcription")
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(srt_save_path), exist_ok=True)
+
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
 
@@ -300,65 +331,8 @@ class OpenAIService:
                 f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
             )
             raise ValueError(
-                "Error in GPT response: " + str(gpt_response.choices[0])
-                if gpt_response
-                else "Unexpected error"
+                "Error in GPT response" if gpt_response else "Unexpected error"
             )
-
-    def get_romaji_lyrics(self, lyrics_arr, video_id):
-        romaji_messages = [
-            romaji_annotation_system_message,
-            {
-                "role": "user",
-                "content": f"以下の日本語の歌詞をローマ字に変換してください。JSON形式で応答してください。歌詞: {json.dumps(lyrics_arr)}",
-            },
-        ]
-        gpt_response = None
-
-        print("This is romaji lyrics received lyrics arr")
-        print(lyrics_arr)
-
-        try:
-            gpt_response = self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=romaji_messages,
-                tools=tools,
-                temperature=0.25,
-                response_format={"type": "json_object"},
-                tool_choice={
-                    "type": "function",
-                    "function": {"name": "convert_to_romaji"},
-                },
-            )
-
-            if gpt_response.choices[0].message.tool_calls:
-                function_call = gpt_response.choices[0].message.tool_calls[0].function
-                romaji_lyrics = json.loads(function_call.arguments)
-            else:
-                raise ValueError("No function call found in the response")
-
-            if "romaji" not in romaji_lyrics:
-                raise ValueError("Response is missing required keys")
-
-            if len(romaji_lyrics["romaji"]) != len(lyrics_arr):
-                raise ValueError(
-                    f"Number of Romaji lines does not match the original. "
-                    f"Original: {len(lyrics_arr)}, Romaji: {len(romaji_lyrics['romaji'])}"
-                )
-
-            yield "romaji_lyrics", romaji_lyrics["romaji"]
-
-        except Exception as e:
-            print(f"An error occurred in get_romaji_lyrics: {str(e)}")
-            for i, (original, romaji) in enumerate(
-                zip(lyrics_arr, romaji_lyrics["romaji"])
-            ):
-                print(f"Line {i + 1} Original: {original} | Romaji: {romaji}")
-
-            print(
-                f"Response: {gpt_response.choices[0] if gpt_response else 'No response'}"
-            )
-            raise ValueError("Error in getting Romaji lyrics")
 
     def get_kanji_annotations(self, lyrics_arr, video_id):
         kanji_messages = [

@@ -54,18 +54,15 @@ def validation_endpoint():
 
                 yield utils.stream_message(
                     "update",
-                    f"Video ID {video_id} received.",
+                    f"Received Video ID: {video_id}",
                 )
                 time.sleep(1)
 
                 yield utils.stream_message("update", "Fetching video data...")
-                time.sleep(1.5)
+                time.sleep(1)
 
                 for update in openai_service.validate_video(video_id):
                     yield update
-
-                yield utils.stream_message("update", "Finalizing validation process...")
-                time.sleep(0.5)
 
                 yield utils.stream_message(
                     "success",
@@ -106,15 +103,57 @@ def transcription_endpoint_v2():
                     subtitle_file_path = subtitle_info["path"]
                     subtitle_ext = subtitle_info["ext"]
 
-                    transcription = utils.process_subtitle_file(
-                        subtitle_file_path, subtitle_ext, apply_error_checks=False
-                    )
-                    ai_generated = False
-                else:
+                    # Check if the subtitle file is not empty
+                    if (
+                        os.path.exists(subtitle_file_path)
+                        and os.path.getsize(subtitle_file_path) > 0
+                    ):
+                        transcription = utils.process_subtitle_file(
+                            subtitle_file_path, subtitle_ext, apply_error_checks=False
+                        )
+                        ai_generated = False
+                    else:
+
+                        print("In else block of subtitle exist for: ", video_id)
+                        # If the subtitle file is empty or doesn't exist, treat it as if subtitles don't exist
+                        subtitle_exist = False
+
+                        audio_path = f"./output/track/{video_id}.m4a"
+                        raw_transcription_path = openai_service.get_transcription(
+                            video_id, audio_path
+                        )
+
+                        # Check if the transcription was successful
+                        if raw_transcription_path == "Failed to get transcription":
+                            raise Exception("Failed to generate transcription")
+
+                        # Check if the generated SRT file exists
+                        if not os.path.exists(raw_transcription_path):
+                            raise FileNotFoundError(
+                                f"Generated SRT file not found: {raw_transcription_path}"
+                            )
+
+                        transcription = utils.process_subtitle_file(
+                            raw_transcription_path, "srt", apply_error_checks=True
+                        )
+                        ai_generated = True
+
+                if not subtitle_exist:
                     audio_path = f"./output/track/{video_id}.m4a"
                     raw_transcription_path = openai_service.get_transcription(
                         video_id, audio_path
                     )
+
+                    # Check if the transcription was successful
+                    if raw_transcription_path == "Failed to get transcription":
+                        raise Exception("Failed to generate transcription")
+
+                    # Check if the generated SRT file exists
+                    if not os.path.exists(raw_transcription_path):
+                        raise FileNotFoundError(
+                            f"Generated SRT file not found: {raw_transcription_path}"
+                        )
+
                     transcription = utils.process_subtitle_file(
                         raw_transcription_path, "srt", apply_error_checks=True
                     )
@@ -155,30 +194,25 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                # Define the base directory for cached translations
                 cache_dir = "./output/cached_translations"
                 os.makedirs(cache_dir, exist_ok=True)
 
-                # Define cache paths
                 eng_cache_path = os.path.join(cache_dir, f"{video_id}_eng.txt")
                 chi_cache_path = os.path.join(cache_dir, f"{video_id}_chi.txt")
                 romaji_cache_path = os.path.join(cache_dir, f"{video_id}_romaji.txt")
                 kanji_cache_path = os.path.join(cache_dir, f"{video_id}_kanji.txt")
 
-                # Function to read cached data
                 def read_cached_data(path):
                     if os.path.exists(path):
                         with open(path, "r", encoding="utf-8") as f:
                             return f.read().splitlines()
                     return None
 
-                # Read cached data
+                # Translation step
+                yield utils.stream_message("task_update", "translation")
                 eng_translation = read_cached_data(eng_cache_path)
                 chi_translation = read_cached_data(chi_cache_path)
-                romaji_lyrics = read_cached_data(romaji_cache_path)
-                kanji_annotations = read_cached_data(kanji_cache_path)
 
-                # Check and generate translations if needed
                 if eng_translation is None or chi_translation is None:
                     yield utils.stream_message("update", "Generating translations...")
                     MAX_RETRIES = 3
@@ -211,7 +245,7 @@ def translate_annotate_endpoint():
 
                             translations_completed = True
                             yield utils.stream_message(
-                                "update", "Translations completed successfully."
+                                "update", "Translations completed."
                             )
                         except ValueError as e:
                             retry_count += 1
@@ -230,8 +264,12 @@ def translate_annotate_endpoint():
                     yield utils.stream_message("update", "Using cached translations...")
                     yield utils.stream_message("eng_translation", eng_translation)
                     yield utils.stream_message("chi_translation", chi_translation)
+                    yield utils.stream_message("task_update", "romaji")
 
-                # Generate Romaji lyrics if needed
+                # Romaji annotation step
+                yield utils.stream_message("task_update", "romaji")
+                romaji_lyrics = read_cached_data(romaji_cache_path)
+
                 if romaji_lyrics is None:
                     yield utils.stream_message("update", "Generating romaji lyrics...")
                     try:
@@ -242,6 +280,10 @@ def translate_annotate_endpoint():
                             if message_type == "romaji_lyrics":
                                 romaji_lyrics = message_content
                                 yield utils.stream_message(message_type, romaji_lyrics)
+                                yield utils.stream_message(
+                                    "update", "Romaji annotation completed."
+                                )
+                                yield utils.stream_message("task_update", "kanji")
 
                                 with open(
                                     romaji_cache_path, "w", encoding="utf-8"
@@ -252,19 +294,21 @@ def translate_annotate_endpoint():
                                     "error",
                                     f"Romaji generation failed: {message_content}",
                                 )
-                                pass
+                                # return
                     except ValueError:
-                        # yield utils.stream_message(
-                        #     "error", f"Romaji generation failed: {str(e)}"
-                        # )
-                        return
+                        yield utils.stream_message("error", "Romaji generation failed")
+                        # return
                 else:
                     yield utils.stream_message(
                         "update", "Using cached romaji lyrics..."
                     )
                     yield utils.stream_message("romaji_lyrics", romaji_lyrics)
+                    yield utils.stream_message("task_update", "kanji")
 
-                # Generate Kanji annotations if needed
+                # Kanji annotation step
+                yield utils.stream_message("task_update", "kanji")
+                kanji_annotations = read_cached_data(kanji_cache_path)
+
                 if kanji_annotations is None:
                     yield utils.stream_message(
                         "update", "Generating kanji annotations..."
@@ -276,6 +320,9 @@ def translate_annotate_endpoint():
                         ) in openai_service.get_kanji_annotations(lyrics_arr, video_id):
                             kanji_annotations = kanji_annotations_part
                             yield utils.stream_message(kanji_type, kanji_annotations)
+                            yield utils.stream_message(
+                                "update", "Kanji annotation completed."
+                            )
 
                         with open(kanji_cache_path, "w", encoding="utf-8") as f:
                             f.write("\n".join(kanji_annotations))
@@ -291,18 +338,20 @@ def translate_annotate_endpoint():
                     yield utils.stream_message("kanji_annotations", kanji_annotations)
 
                 yield utils.stream_message(
-                    "update", "Translation and annotation process completed."
+                    "update", "All processes completed successfully."
                 )
-                
-                utils.cleanup_files(video_id)
-                yield utils.stream_message("update", "Cleanup completed.")
+
+                # utils.cleanup_files(video_id)
+                # yield utils.stream_message("update", "Cleanup completed.")
 
             except Exception as e:
                 yield utils.stream_message("error", str(e))
-                
-                if 'video_id' in locals():
-                    utils.cleanup_files(video_id)
-                    yield utils.stream_message("update", "Cleanup completed after error.")
+
+                # if "video_id" in locals():
+                #     utils.cleanup_files(video_id)
+                #     yield utils.stream_message(
+                #         "update", "Cleanup completed after error."
+                #     )
 
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 

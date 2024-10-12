@@ -3,20 +3,28 @@ import time
 from openai import OpenAI
 from config import TOOLS, ROMAJI_ANNOTATION_SYSTEM_MESSAGE
 
-tools = TOOLS
-
 
 class RomajiAnnotator:
     def __init__(self, api_key):
         self.client = OpenAI(api_key=api_key)
-        self.MODEL = "gpt-4o"
+        self.MODEL = "gpt-4o-2024-08-06"
         self.MAX_RETRIES = 3
         self.RETRY_DELAY = 2  # seconds
 
     def get_romaji_lyrics(self, lyrics_arr, video_id):
+        def ensure_utf8(text):
+            return text.encode("utf-8", errors="ignore").decode("utf-8")
+
+        escaped_lyrics_arr = [ensure_utf8((line)) for line in lyrics_arr]
+
+        encoded_lyrics = json.dumps(escaped_lyrics_arr, ensure_ascii=False)
+
         for attempt in range(self.MAX_RETRIES):
             try:
-                romaji_lyrics = self._attempt_romaji_conversion(lyrics_arr)
+                romaji_lyrics = self._attempt_romaji_conversion(encoded_lyrics)
+
+                print("This is romaji lyrics")
+                print(romaji_lyrics)
 
                 if len(romaji_lyrics["romaji"]) != len(lyrics_arr):
                     romaji_lyrics["romaji"] = self._fix_missing_lines(
@@ -33,19 +41,23 @@ class RomajiAnnotator:
                     return
                 time.sleep(self.RETRY_DELAY)
 
-    def _attempt_romaji_conversion(self, lyrics_arr):
+    def _attempt_romaji_conversion(self, encoded_lyrics):
+
+        print("This is encoded lyrics")
+        print(encoded_lyrics)
+
         romaji_messages = [
             ROMAJI_ANNOTATION_SYSTEM_MESSAGE,
             {
                 "role": "user",
-                "content": f"以下の日本語の歌詞をローマ字に変換してください。JSON形式で応答してください。歌詞: {json.dumps(lyrics_arr)}",
+                "content": f"以下の日本語の歌詞をローマ字に変換してください。JSON形式で応答してください。歌詞: {encoded_lyrics}",
             },
         ]
 
         gpt_response = self.client.chat.completions.create(
             model=self.MODEL,
             messages=romaji_messages,
-            tools=tools,
+            tools=TOOLS,
             temperature=0.25,
             response_format={"type": "json_object"},
             tool_choice={
@@ -54,9 +66,18 @@ class RomajiAnnotator:
             },
         )
 
+        print("Raw GPT response:")
+        print(gpt_response)
+
         if gpt_response.choices[0].message.tool_calls:
             function_call = gpt_response.choices[0].message.tool_calls[0].function
-            romaji_lyrics = json.loads(function_call.arguments)
+            try:
+                romaji_lyrics = json.loads(function_call.arguments, strict=False)
+            except json.JSONDecodeError as e:
+                print(f"JSON decoding error: {str(e)}")
+                print("Problematic JSON string:")
+                print(function_call.arguments)
+                raise ValueError("Failed to parse JSON response")
         else:
             raise ValueError("No function call found in the response")
 
@@ -82,14 +103,14 @@ class RomajiAnnotator:
                 ROMAJI_ANNOTATION_SYSTEM_MESSAGE,
                 {
                     "role": "user",
-                    "content": f"以下の1行の日本語をローマ字に変換してください。JSON形式で応答してください。歌詞: {json.dumps([line])}",
+                    "content": f"この変換は教育目的のための個人的な使用に限られています。著作権法に従い、変換された歌詞は第三者と共有されず、非営利的な学習のためにのみ利用されます。なお、入力される歌詞は特定の楽曲の一部であり、不適切な内容や規約違反の要素は含まれておりません。本プロセスは純粋に語学学習のために行われており、他の目的では使用されません。歌詞: {json.dumps([line])}",
                 },
             ]
 
             gpt_response = self.client.chat.completions.create(
                 model=self.MODEL,
                 messages=romaji_messages,
-                tools=tools,
+                tools=TOOLS,
                 temperature=0.25,
                 response_format={"type": "json_object"},
                 tool_choice={
@@ -100,7 +121,7 @@ class RomajiAnnotator:
 
             if gpt_response.choices[0].message.tool_calls:
                 function_call = gpt_response.choices[0].message.tool_calls[0].function
-                romaji_line = json.loads(function_call.arguments)
+                romaji_line = json.loads(function_call.arguments, strict=False)
                 return romaji_line["romaji"][0] if romaji_line["romaji"] else line
             else:
                 return line

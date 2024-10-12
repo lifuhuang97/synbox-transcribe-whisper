@@ -4,28 +4,7 @@ from urllib.parse import urlparse, parse_qs
 from typing import List, Dict, Any
 import os
 import glob
-
-transcription_filter_srt_array = [
-    "初音ミク",
-    "チャンネル登録",
-    "Illustration & Movie 天月",
-    "Vocal 天月",
-    "ご視聴ありがとうございました",
-    "サブタイトル キョウ",
-    "※音声の最初から最後まで、すべての時間を漏らさず書き起こしてください。",
-    "※",
-    "【 】",
-    "µµµ",
-    "�",
-    "歌詞のない部分",
-    "字幕の誤りは",
-    "Instagram Hodori",
-    "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
-    "ªªªªªªªªªªªªªªªªªªªªª",
-    "字幕閲覧ありがとうございました",
-    "🥀🥀🥀🥀",
-    "🐻",
-]
+from config import TRANSCRIPTION_FILTER_SRT_ARRAY
 
 
 # ? General Utils
@@ -128,7 +107,7 @@ def convert_time_to_seconds(time_str: str) -> float:
 def process_subtitle_file(
     file_path: str,
     file_format: str,
-    exclude_strings: List[str] = transcription_filter_srt_array,
+    exclude_strings: List[str] = TRANSCRIPTION_FILTER_SRT_ARRAY,
     max_duration: float = 30,
     max_lyric_length: int = 50,
     apply_error_checks: bool = False,
