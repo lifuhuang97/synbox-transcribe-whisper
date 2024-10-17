@@ -41,7 +41,7 @@ def validation_endpoint():
     def generate():
         if request.method == "POST":
             yield utils.stream_message("update", "Initializing...")
-            time.sleep(0.5)
+            time.sleep(0.3)
             yield utils.stream_message("update", "Parsing request data...")
             time.sleep(0.5)
 
@@ -54,20 +54,15 @@ def validation_endpoint():
 
                 yield utils.stream_message(
                     "update",
-                    f"Received Video ID: {video_id}",
+                    f"Received Video ID {video_id}",
                 )
-                time.sleep(1)
+                time.sleep(0.4)
 
-                yield utils.stream_message("update", "Fetching video data...")
+                yield utils.stream_message("update", "Gathering video metadata...")
                 time.sleep(1)
 
                 for update in openai_service.validate_video(video_id):
                     yield update
-
-                yield utils.stream_message(
-                    "success",
-                    "Validation complete.",
-                )
 
             except ValueError as ve:
                 yield utils.stream_message("error", f"Validation Error: {str(ve)}")
@@ -100,6 +95,10 @@ def transcription_endpoint_v2():
 
             try:
                 if subtitle_exist:
+                    yield utils.stream_message(
+                        "update", "Retrieving existing subtitles..."
+                    )
+                    time.sleep(1)
                     subtitle_file_path = subtitle_info["path"]
                     subtitle_ext = subtitle_info["ext"]
 
@@ -137,6 +136,9 @@ def transcription_endpoint_v2():
                             raw_transcription_path, "srt", apply_error_checks=True
                         )
                         ai_generated = True
+                    yield utils.stream_message(
+                        "update", "Cached subtitles retrieved successfully."
+                    )
 
                 if not subtitle_exist:
                     audio_path = f"./output/track/{video_id}.m4a"
@@ -158,8 +160,10 @@ def transcription_endpoint_v2():
                         raw_transcription_path, "srt", apply_error_checks=True
                     )
                     ai_generated = True
+                    yield utils.stream_message(
+                        "update", "Transcription generated successfully."
+                    )
 
-                yield utils.stream_message("update", "Transcription completed.")
                 yield utils.stream_message("ai_generated", ai_generated)
                 yield utils.stream_message("transcription", transcription)
 
@@ -209,9 +213,10 @@ def translate_annotate_endpoint():
                     return None
 
                 # Translation step
-                yield utils.stream_message("task_update", "translation")
+                time.sleep(1)
                 eng_translation = read_cached_data(eng_cache_path)
                 chi_translation = read_cached_data(chi_cache_path)
+                yield utils.stream_message("task_update", "translation")
 
                 if eng_translation is None or chi_translation is None:
                     yield utils.stream_message("update", "Generating translations...")
@@ -247,6 +252,7 @@ def translate_annotate_endpoint():
                             yield utils.stream_message(
                                 "update", "Translations completed."
                             )
+                            time.sleep(1)
                         except ValueError as e:
                             retry_count += 1
                             if retry_count == MAX_RETRIES:
@@ -261,7 +267,10 @@ def translate_annotate_endpoint():
                                     f"Retrying translation (attempt {retry_count + 1})...",
                                 )
                 else:
-                    yield utils.stream_message("update", "Using cached translations...")
+                    yield utils.stream_message(
+                        "update", "Retrieving cached translations..."
+                    )
+                    time.sleep(0.8)
                     yield utils.stream_message("eng_translation", eng_translation)
                     yield utils.stream_message("chi_translation", chi_translation)
                     yield utils.stream_message("task_update", "romaji")
@@ -300,8 +309,9 @@ def translate_annotate_endpoint():
                         # return
                 else:
                     yield utils.stream_message(
-                        "update", "Using cached romaji lyrics..."
+                        "update", "Retrieving cached romaji lyrics..."
                     )
+                    time.sleep(0.7)
                     yield utils.stream_message("romaji_lyrics", romaji_lyrics)
                     yield utils.stream_message("task_update", "kanji")
 
@@ -333,10 +343,13 @@ def translate_annotate_endpoint():
                         return
                 else:
                     yield utils.stream_message(
-                        "update", "Using cached kanji annotations..."
+                        "update", "Retrieving cached kanji annotations..."
                     )
+                    time.sleep(5)
                     yield utils.stream_message("kanji_annotations", kanji_annotations)
 
+                yield utils.stream_message("task_update", "completion")
+                time.sleep(1)
                 yield utils.stream_message(
                     "update", "All processes completed successfully."
                 )

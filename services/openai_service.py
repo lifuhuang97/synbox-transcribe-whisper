@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import time
 from openai import OpenAI
 import yt_dlp
 from utils import utils
@@ -59,7 +60,7 @@ class OpenAIService:
 
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
 
-        yield utils.stream_message("update", "Analyzing Audio...")
+        yield utils.stream_message("update", "Analyzing audio...")
 
         files_before = set(os.listdir("./output/track"))
 
@@ -172,7 +173,8 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-        yield utils.stream_message("update", "Validation Completed")
+        yield utils.stream_message("update", "Validation completed.")
+        time.sleep(1)
         yield utils.stream_message("vid_info", result)
 
     def get_transcription(self, video_id, audio_file_path):
