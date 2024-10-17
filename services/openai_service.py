@@ -28,7 +28,8 @@ whisper_prompt = WHISPER_PROMPT
 class OpenAIService:
     def __init__(self, api_key):
         self.client = OpenAI(api_key=api_key)
-        self.MODEL = "gpt-4o-mini"
+        # self.MODEL = "gpt-4o-mini"
+        self.MODEL = "gpt-4o"
 
     def validate_video(self, video_id):
         result = {

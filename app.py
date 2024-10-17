@@ -141,6 +141,8 @@ def transcription_endpoint_v2():
                     )
 
                 if not subtitle_exist:
+                    time.sleep(1.5)
+                    yield utils.stream_message("update", "Transcription in progress...")
                     audio_path = f"./output/track/{video_id}.m4a"
                     raw_transcription_path = openai_service.get_transcription(
                         video_id, audio_path
@@ -258,7 +260,8 @@ def translate_annotate_endpoint():
                             if retry_count == MAX_RETRIES:
                                 yield utils.stream_message(
                                     "error",
-                                    f"Max retries reached. Unable to get translations. Error: {e}",
+                                    "Max retries reached, unable to get translations. Please try again.",
+                                    # Error: {e}",
                                 )
                                 return
                             else:
