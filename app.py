@@ -174,6 +174,7 @@ def transcription_endpoint_v2():
                 print(error_message)  # Log the error
                 yield utils.stream_message("error", error_message)
                 return  # Stop the generator after sending the error message
+                # test
 
     return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
