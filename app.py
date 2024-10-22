@@ -9,6 +9,7 @@ from flask_cors import CORS, cross_origin
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
+from services.directory_manager import DirectoryManager
 
 from utils import utils
 
@@ -18,6 +19,7 @@ sys.path.append("../")
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+DirectoryManager.ensure_all_directories()
 openai_service = OpenAIService(api_key=os.getenv("OPENAI_KEY"))
 appwrite_service = AppwriteService()
 romaji_annotator = RomajiAnnotator(api_key=os.getenv("OPENAI_KEY"))
@@ -212,7 +214,8 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                cache_dir = "./output/cached_translations"
+                cache_dir = DirectoryManager.get_path("output", "cached_translations")
+                DirectoryManager.ensure_directory(cache_dir)
                 os.makedirs(cache_dir, exist_ok=True)
 
                 eng_cache_path = os.path.join(cache_dir, f"{video_id}_eng.txt")

@@ -6,6 +6,7 @@ from openai import OpenAI
 import yt_dlp
 from utils import utils
 
+from services.directory_manager import DirectoryManager
 from config import (
     TOOLS,
     VALIDATE_YOUTUBE_VIDEO_SYSTEM_MESSAGE,
@@ -28,8 +29,11 @@ class OpenAIService:
         self.client = OpenAI(api_key=api_key)
         # self.MODEL = "gpt-4o-mini"
         self.MODEL = "gpt-4o"
+        DirectoryManager.ensure_all_directories()
 
     def validate_video(self, video_id):
+        track_dir = DirectoryManager.get_path("output", "track")
+        DirectoryManager.ensure_directory(track_dir)
         result = {
             "passed": False,
             "audio_file_path": None,
@@ -60,6 +64,12 @@ class OpenAIService:
         full_vid_url = "https://www.youtube.com/watch?v=" + video_id
 
         yield utils.stream_message("update", "Analyzing audio...")
+
+        if not os.path.exists(track_dir):
+            DirectoryManager.ensure_directory(track_dir)
+            files_before = set()
+        else:
+            files_before = set(os.listdir(track_dir))
 
         files_before = set(os.listdir("./output/track"))
 
@@ -177,6 +187,8 @@ class OpenAIService:
         yield utils.stream_message("vid_info", result)
 
     def get_transcription(self, video_id, audio_file_path):
+        response_srt_dir = DirectoryManager.get_path("output", "response_srt")
+        DirectoryManager.ensure_directory(response_srt_dir)
         srt_save_path = f"./output/response_srt/{video_id}.srt"
 
         # Check if the .srt file already exists
