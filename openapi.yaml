@@ -1,0 +1,124 @@
+swagger: "2.0"
+info:
+  title: "SynboxFlask"
+  description: "API for Synbox"
+  version: "1.0.0"
+host: "synbox-flask-cloud-run-dtitfmn76a-as.a.run.app"
+x-google-endpoints:
+  - name: "synbox-flask-cloud-run-dtitfmn76a-as.a.run.app"
+    allowCors: true # Enable CORS globally
+paths:
+  /:
+    get:
+      summary: "Init Page"
+      operationId: initPage
+      responses:
+        "200":
+          description: "Welcome Message"
+          schema:
+            type: string
+
+  /validate:
+    post:
+      summary: "Validate Video ID"
+      operationId: validateVideo
+      parameters:
+        - in: body
+          name: videoId
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                description: "YouTube video ID"
+      responses:
+        "200":
+          description: "Video ID validation updates"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+
+    options:
+      summary: "Handle CORS Preflight Request for Validate"
+      operationId: handleValidateOptions
+      responses:
+        "204":
+          description: "CORS headers set"
+
+  /transcribev2:
+    post:
+      summary: "Transcribe video with or without subtitles"
+      operationId: transcribeVideo
+      parameters:
+        - in: body
+          name: videoData
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                description: "YouTube video ID"
+              subtitle_info:
+                type: object
+                properties:
+                  exist:
+                    type: boolean
+                  path:
+                    type: string
+                  ext:
+                    type: string
+      responses:
+        "200":
+          description: "Transcription updates"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+
+    options:
+      summary: "Handle CORS Preflight Request for Transcription"
+      operationId: handleTranscriptionOptions
+      responses:
+        "204":
+          description: "CORS headers set"
+
+  /translate-annotate:
+    post:
+      summary: "Translate and Annotate Video Lyrics"
+      operationId: translateAndAnnotate
+      parameters:
+        - in: body
+          name: annotationData
+          schema:
+            type: object
+            properties:
+              id:
+                type: string
+                description: "YouTube video ID"
+              lyrics:
+                type: array
+                items:
+                  type: string
+                description: "Array of lyrics"
+              timestamped_lyrics:
+                type: array
+                items:
+                  type: object
+      responses:
+        "200":
+          description: "Translation and Annotation updates"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+
+    options:
+      summary: "Handle CORS Preflight Request for Translation"
+      operationId: handleTranslationOptions
+      responses:
+        "204":
+          description: "CORS headers set"

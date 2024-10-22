@@ -5,8 +5,6 @@ import time
 from openai import OpenAI
 import yt_dlp
 from utils import utils
-import re
-import unicodedata
 
 from config import (
     TOOLS,
