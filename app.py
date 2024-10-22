@@ -3,8 +3,8 @@ import os
 import time
 
 from dotenv import load_dotenv
-from flask import Flask, request, Response, stream_with_context
-from flask_cors import CORS
+from flask import Flask, jsonify, request, Response, stream_with_context
+from flask_cors import CORS, cross_origin
 
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
@@ -23,12 +23,21 @@ appwrite_service = AppwriteService()
 romaji_annotator = RomajiAnnotator(api_key=os.getenv("OPENAI_KEY"))
 
 
+@cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/")
 def init_page():
     return "Hey"
 
 
+#! Cors Test Endpoint
+@cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
+@app.route("/cors-test", methods=["GET", "OPTIONS"])
+def cors_test():
+    return jsonify({"message": "CORS test successful", "status": "ok"})
+
+
 #! Step 1
+@cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/validate", methods=["OPTIONS", "POST"])
 def validation_endpoint():
     if request.method == "OPTIONS":
@@ -75,6 +84,7 @@ def validation_endpoint():
 
 
 #! Step 2
+@cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/transcribev2", methods=["POST"])
 def transcription_endpoint_v2():
     if request.method == "OPTIONS":
@@ -180,6 +190,7 @@ def transcription_endpoint_v2():
 
 
 #! Step 3
+@cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/translate-annotate", methods=["OPTIONS", "POST"])
 def translate_annotate_endpoint():
     if request.method == "OPTIONS":

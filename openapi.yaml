@@ -7,6 +7,7 @@ host: "synbox-flask-cloud-run-dtitfmn76a-as.a.run.app"
 x-google-endpoints:
   - name: "synbox-flask-cloud-run-dtitfmn76a-as.a.run.app"
     allowCors: true # Enable CORS globally
+
 paths:
   /:
     get:
@@ -45,7 +46,7 @@ paths:
       operationId: handleValidateOptions
       responses:
         "204":
-          description: "CORS headers set"
+          $ref: "#/responses/CorsResponse"
 
   /transcribev2:
     post:
@@ -83,7 +84,7 @@ paths:
       operationId: handleTranscriptionOptions
       responses:
         "204":
-          description: "CORS headers set"
+          $ref: "#/responses/CorsResponse"
 
   /translate-annotate:
     post:
@@ -121,4 +122,18 @@ paths:
       operationId: handleTranslationOptions
       responses:
         "204":
-          description: "CORS headers set"
+          $ref: "#/responses/CorsResponse"
+
+responses:
+  CorsResponse:
+    description: "CORS headers set"
+    headers:
+      Access-Control-Allow-Origin:
+        type: string
+        description: "Allowed Origin"
+      Access-Control-Allow-Methods:
+        type: string
+        description: "Allowed Methods"
+      Access-Control-Allow-Headers:
+        type: string
+        description: "Allowed Headers"
