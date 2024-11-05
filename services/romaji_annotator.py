@@ -5,8 +5,12 @@ from config import TOOLS, ROMAJI_ANNOTATION_SYSTEM_MESSAGE
 
 
 class RomajiAnnotator:
-    def __init__(self, api_key):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key, organization, project):
+        self.client = OpenAI(
+            api_key=api_key,
+            organization=organization,
+            project=project,
+        )
         self.MODEL = "gpt-4o-2024-08-06"
         self.MAX_RETRIES = 3
         self.RETRY_DELAY = 2

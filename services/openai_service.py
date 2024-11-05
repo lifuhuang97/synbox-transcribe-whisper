@@ -2,6 +2,7 @@ import os
 import json
 import time
 from openai import OpenAI
+from openai import OpenAIError
 from pathlib import Path
 import yt_dlp
 from utils import utils
@@ -23,9 +24,20 @@ romaji_annotation_system_message = ROMAJI_ANNOTATION_SYSTEM_MESSAGE
 whisper_prompt = WHISPER_PROMPT
 
 
+class TranscriptionValidationError(Exception):
+    """Custom exception for transcription validation errors"""
+
+    pass
+
+
 class OpenAIService:
-    def __init__(self, api_key, appwrite_service=None):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key, organization, project, appwrite_service=None):
+        self.PROJECT_ROOT = Path(__file__).parent.parent
+        self.client = OpenAI(
+            api_key=api_key,
+            organization=organization,
+            project=project,
+        )
         self.MODEL = "gpt-4o"
         self.appwrite_service = appwrite_service
         Path("media").mkdir(exist_ok=True)
@@ -58,10 +70,19 @@ class OpenAIService:
             "subtitlesoutopt": "./media/%(id)s.%(ext)s",
         }
 
+        # Check storage status first
+        song_exists_in_storage = False
+        if self.appwrite_service:
+            song_exists_in_storage = self.appwrite_service.file_exists_in_songs_bucket(
+                f"{video_id}.m4a"
+            )
+            if song_exists_in_storage:
+                yield utils.stream_message("update", "Song already exists in storage.")
+
         yield utils.stream_message("update", "Analyzing audio...")
 
         try:
-            # Download and validate video
+            # Always download to get metadata and validate
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 error_code = ydl.download(
                     [f"https://www.youtube.com/watch?v={video_id}"]
@@ -71,7 +92,7 @@ class OpenAIService:
                     yield utils.stream_message("error", result["error_msg"])
                     return
 
-            # Instead of looking for new files, check for expected files directly
+            # Check for expected files
             expected_files = [
                 f"{video_id}.m4a",
                 f"{video_id}.ja.vtt",
@@ -99,8 +120,8 @@ class OpenAIService:
 
             result["audio_file_path"] = str(Path("media") / f"{video_id}.m4a")
             info_file_path = Path("media") / f"{video_id}.info.json"
-            # # Get new files
 
+            # Process video info from the downloaded json
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
 
@@ -150,14 +171,9 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-            # Upload files if validation passed
+            # Handle upload only if validation passed and song doesn't exist in storage
             if result["passed"] and self.appwrite_service:
-                # Check if song exists in cloud storage before attempting upload
-                if self.appwrite_service.file_exists_in_songs_bucket(f"{video_id}.m4a"):
-                    yield utils.stream_message(
-                        "update", "Song already exists in storage, skipping upload."
-                    )
-                else:
+                if not song_exists_in_storage:
                     # Upload song
                     yield utils.stream_message("update", "Uploading song to storage...")
                     upload_success = self.appwrite_service.upload_song(video_id)
@@ -172,7 +188,7 @@ class OpenAIService:
                         "update", "Song upload completed successfully."
                     )
 
-                # Continue with subtitle handling if they exist
+                # Handle subtitles if they exist
                 if result["subtitle_info"]["exist"]:
                     yield utils.stream_message("update", "Uploading Japanese lyrics...")
                     if self.appwrite_service.file_exists_in_lyrics_bucket(
@@ -197,6 +213,7 @@ class OpenAIService:
                                 "Japanese lyrics upload failed, but video validation passed.",
                             )
 
+            # Always yield the final result regardless of storage status
             yield utils.stream_message("update", "Validation completed.")
             time.sleep(1)
             yield utils.stream_message("vid_info", result)
@@ -209,33 +226,85 @@ class OpenAIService:
             return
 
     def get_transcription(self, video_id: str, audio_file_path: Path) -> str:
-        srt_save_path = Path(f"./media/{video_id}.srt")
+        """
+        Get transcription for an audio file with comprehensive error checking.
+
+        Args:
+            video_id: Unique identifier for the video
+            audio_file_path: Path to the audio file
+
+        Returns:
+            str: Path to the saved SRT file
+        """
+        # Create paths relative to project root
+        media_dir = self.PROJECT_ROOT / "media"
+        srt_save_path = media_dir / f"{video_id}.srt"
+
+        # Basic validation
+        if not video_id or not audio_file_path:
+            raise TranscriptionValidationError(
+                "video_id and audio_file_path cannot be empty"
+            )
+
+        # Convert relative path to absolute if necessary
+        if not audio_file_path.is_absolute():
+            audio_file_path = self.PROJECT_ROOT / audio_file_path
+
+        if not audio_file_path.exists():
+            raise TranscriptionValidationError(
+                f"Audio file not found: {audio_file_path}"
+            )
+
+        # Check file size (OpenAI limit is 25MB)
+        file_size = audio_file_path.stat().st_size
+        if file_size > 25 * 1024 * 1024:
+            raise TranscriptionValidationError("Audio file exceeds 25MB limit")
 
         try:
-            with open(audio_file_path, "rb") as audio_file:
-                transcription = self.client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ja",
-                    prompt=whisper_prompt,
-                    response_format="srt",
-                    timestamp_granularities=["segment"],
-                    temperature=0.77,
-                    # 0.37 0.77 0.82
-                )
+            # Ensure the output directory exists
+            os.makedirs(media_dir, exist_ok=True)
 
-            # Save transcription locally
-            os.makedirs(os.path.dirname(str(srt_save_path)), exist_ok=True)
+            print("This is audio path")
+            print(audio_file_path)
+
+            # Open and transcribe the audio file
+            with open(audio_file_path, "rb") as audio_file:
+                try:
+                    transcription = self.client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio_file,
+                        language="ja",
+                        prompt=whisper_prompt,
+                        response_format="srt",
+                        timestamp_granularities=["segment"],
+                        temperature=0.77,
+                    )
+                except OpenAIError as api_error:
+                    raise TranscriptionValidationError(
+                        f"OpenAI API error: {str(api_error)}"
+                    )
+
+            # Validate transcription result
+            if not transcription:
+                raise TranscriptionValidationError("Empty transcription received")
+
+            # Save transcription
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
 
-            # Upload the cleansed SRT to cloud storage
-            self.appwrite_service.upload_srt_subtitle(video_id)
+            # Upload to cloud storage
+            try:
+                self.appwrite_service.upload_srt_subtitle(video_id)
+            except Exception as upload_error:
+                raise TranscriptionValidationError(
+                    f"Failed to upload to cloud storage: {str(upload_error)}"
+                )
 
             return str(srt_save_path)
+
         except Exception as e:
-            print(f"Error in transcription process: {str(e)}")
-            return "Failed to get transcription"
+            print(f"Error during transcription process: {str(e)}")
+            return f"Failed to get transcription: {str(e)}"
 
     #! Helper Function - check video length
     def longer_than_eight_mins(self, info):

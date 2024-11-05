@@ -11,7 +11,7 @@ from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
 from utils import utils
 
-load_dotenv()
+load_dotenv(override=True)
 sys.path.append("../")
 
 app = Flask(__name__)
@@ -29,9 +29,23 @@ if not os.path.exists(OUTPUT_TRACK_DIR):
 
 appwrite_service = AppwriteService()
 openai_service = OpenAIService(
-    api_key=os.getenv("OPENAI_KEY"), appwrite_service=appwrite_service
+    api_key=os.getenv("OPENAI_KEY"),
+    organization=os.getenv("OPENAI_ORG"),
+    project=os.getenv("OPENAI_PROJ"),
+    appwrite_service=appwrite_service,
 )
-romaji_annotator = RomajiAnnotator(api_key=os.getenv("OPENAI_KEY"))
+romaji_annotator = RomajiAnnotator(
+    api_key=os.getenv("OPENAI_KEY"),
+    organization=os.getenv("OPENAI_ORG"),
+    project=os.getenv("OPENAI_PROJ"),
+)
+
+print("ENVS")
+print(
+    os.getenv("OPENAI_KEY"),
+    os.getenv("OPENAI_ORG"),
+    os.getenv("OPENAI_PROJ"),
+)
 
 
 @cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
@@ -176,7 +190,6 @@ def transcription_endpoint_v2():
                         ):
                             raise Exception("Failed to download audio file")
 
-                    openai_service = OpenAIService(appwrite_service)
                     raw_transcription_path = openai_service.get_transcription(
                         video_id, audio_path
                     )
@@ -354,4 +367,6 @@ def translate_annotate_endpoint():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    # Enable debug only in development environment
+    is_development = os.environ.get("ENVIRONMENT", "development") == "development"
+    app.run(host="0.0.0.0", port=port, debug=is_development)
