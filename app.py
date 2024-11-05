@@ -49,13 +49,6 @@ romaji_annotator = RomajiAnnotator(
     project=os.getenv("OPENAI_PROJ"),
 )
 
-print("ENVS")
-print(
-    os.getenv("OPENAI_KEY"),
-    os.getenv("OPENAI_ORG"),
-    os.getenv("OPENAI_PROJ"),
-)
-
 
 @cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/")
