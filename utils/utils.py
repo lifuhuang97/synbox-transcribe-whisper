@@ -148,17 +148,21 @@ def process_subtitle_file(
 
             duration = round(end_time - start_time, 3)
 
-            # Apply filtering based on exclude_strings
+            # Replace filtered content with redaction message instead of skipping
             if apply_filters and any(
                 exclude_str in lyric for exclude_str in exclude_strings
             ):
-                continue
+                lyric = "[Redacted for inaccuracy]"
 
             if not apply_filters or (
                 not (duration >= max_duration and len(lyric) > 20)
                 and not (len(lyric) > max_lyric_length)
             ):
-                if len(lyric) > max_lyric_length and " " in lyric:
+                if (
+                    len(lyric) > max_lyric_length
+                    and " " in lyric
+                    and lyric != "[Redacted for inaccuracy]"
+                ):
                     words = lyric.split()
                     current_line = ""
                     lines = []
@@ -206,7 +210,8 @@ def process_subtitle_file(
         content, file_format, exclude_strings, apply_filters=True
     )
 
-    # If all content was filtered out, process without filters
+    # Modified: We don't need to reprocess without filters since we're keeping all lines now
+    # The following block can be removed if you want to keep only the filtered version
     if not timestamped_lyrics:
         timestamped_lyrics = process_subtitle(
             content, file_format, exclude_strings, apply_filters=False
@@ -217,15 +222,20 @@ def process_subtitle_file(
         content_count = {}
         for item in timestamped_lyrics:
             content = item["lyric"]
-            content_count[content] = content_count.get(content, 0) + 1
+            if (
+                content != "[Redacted for inaccuracy]"
+            ):  # Don't count redacted lines in repetition check
+                content_count[content] = content_count.get(content, 0) + 1
 
-        most_common_content = max(content_count, key=content_count.get)
-        most_common_count = content_count[most_common_content]
+        if content_count:  # Only check if there are non-redacted lines
+            most_common_content = max(content_count, key=content_count.get)
+            most_common_count = content_count[most_common_content]
+            total_non_redacted = sum(content_count.values())
 
-        if most_common_count / len(timestamped_lyrics) >= 0.8:
-            raise ValueError(
-                "Error: 80% or more of the subtitle blocks have the same content. The transcription may have errored out."
-            )
+            if most_common_count / total_non_redacted >= 0.8:
+                raise ValueError(
+                    "Error: 80% or more of the non-redacted subtitle blocks have the same content. The transcription may have errored out."
+                )
 
     # Generate other required outputs
     lyrics = [item["lyric"] for item in timestamped_lyrics]

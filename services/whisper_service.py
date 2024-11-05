@@ -116,17 +116,9 @@ class WhisperService:
                     .first()
                     .download(filename=audio_filename)
                 )
-                audio_file_downloaded = True
         else:
             print("Audio already exists, using existing audio file...")
             audio_file = audio_filename
-
-        # use denoiser="demucs" and vad=True for music
-
-        # TODO: Add detect language before proceeding to transcribe
-        # detect the spoken language
-        # _, probs = model.detect_language(mel)
-        # print(f"Detected language: {max(probs, key=probs.get)}")
 
         result = (
             self.model.transcribe(

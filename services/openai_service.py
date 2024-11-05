@@ -197,12 +197,11 @@ class OpenAIService:
             return srt_save_path
 
         with open(audio_file_path, "rb") as audio_file:
-            # TODO: change parameters to try to deal with fast songs
+            # ? change parameters to try to deal with fast songs
             transcription = self.client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
                 language="ja",
-                # TODO: Rewrite prompt
                 prompt=whisper_prompt,
                 response_format="srt",
                 timestamp_granularities=["segment"],
@@ -221,8 +220,6 @@ class OpenAIService:
                 output_file.write(transcription)
 
         print("GPT Transcription generated, processed, and saved successfully")
-
-        # TODO: Consider adding a "cleansing step" through cgpt to remove any unwanted characters
 
         if transcription:
             return srt_save_path
@@ -306,7 +303,6 @@ class OpenAIService:
                 model=self.MODEL,
                 messages=messages,
                 tools=tools,
-                # TODO: test temperature variance for translation
                 temperature=temperature,
                 response_format={"type": "json_object"},
                 tool_choice={
