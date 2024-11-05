@@ -152,7 +152,7 @@ def process_subtitle_file(
             if apply_filters and any(
                 exclude_str in lyric for exclude_str in exclude_strings
             ):
-                lyric = "[Redacted for inaccuracy]"
+                lyric = "「不正確なため削除されました」"
 
             if not apply_filters or (
                 not (duration >= max_duration and len(lyric) > 20)
@@ -161,7 +161,7 @@ def process_subtitle_file(
                 if (
                     len(lyric) > max_lyric_length
                     and " " in lyric
-                    and lyric != "[Redacted for inaccuracy]"
+                    and lyric != "「不正確なため削除されました」"
                 ):
                     words = lyric.split()
                     current_line = ""
@@ -223,7 +223,7 @@ def process_subtitle_file(
         for item in timestamped_lyrics:
             content = item["lyric"]
             if (
-                content != "[Redacted for inaccuracy]"
+                content != "「不正確なため削除されました」"
             ):  # Don't count redacted lines in repetition check
                 content_count[content] = content_count.get(content, 0) + 1
 
