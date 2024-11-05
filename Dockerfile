@@ -21,4 +21,4 @@ ENV PYTHONDONTWRITEBYTECODE=1
 EXPOSE $PORT
 
 # Update Gunicorn command with additional parameters
-CMD ["sh", "-c", "gunicorn -b 0.0.0.0:$PORT --workers=2 --threads=8 --timeout=0 app:app"]
+CMD ["flask", "run", "--host=0.0.0.0", "--port=$PORT"]
