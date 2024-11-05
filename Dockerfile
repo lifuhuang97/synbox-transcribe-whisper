@@ -17,8 +17,12 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
+# Consider adding a healthcheck
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/ || exit 1
+
 # Expose port 8080, required by Cloud Run
-EXPOSE $PORT
+EXPOSE 8080
 
 # Update Gunicorn command with additional parameters
-CMD ["flask", "run", "--host=0.0.0.0", "--port=$PORT"]
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:8080 --workers=2 --threads=8 --timeout=0 app:app"]

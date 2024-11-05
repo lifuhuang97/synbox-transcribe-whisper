@@ -15,16 +15,7 @@ load_dotenv(override=True)
 sys.path.append("../")
 
 app = Flask(__name__)
-CORS(
-    app,
-    resources={
-        r"/*": {
-            "origins": ["https://synbox.io"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-        }
-    },
-)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Create necessary directories
 MEDIA_DIR = "media"
@@ -369,7 +360,4 @@ def translate_annotate_endpoint():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    is_development = os.environ.get("ENVIRONMENT", "development") == "development"
-    app.run(
-        host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=is_development
-    )
+    app.run(host="0.0.0.0", port=port)
