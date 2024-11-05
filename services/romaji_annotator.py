@@ -9,22 +9,18 @@ class RomajiAnnotator:
         self.client = OpenAI(api_key=api_key)
         self.MODEL = "gpt-4o-2024-08-06"
         self.MAX_RETRIES = 3
-        self.RETRY_DELAY = 2  # seconds
+        self.RETRY_DELAY = 2
 
     def get_romaji_lyrics(self, lyrics_arr, video_id):
         def ensure_utf8(text):
             return text.encode("utf-8", errors="ignore").decode("utf-8")
 
         escaped_lyrics_arr = [ensure_utf8((line)) for line in lyrics_arr]
-
         encoded_lyrics = json.dumps(escaped_lyrics_arr, ensure_ascii=False)
 
         for attempt in range(self.MAX_RETRIES):
             try:
                 romaji_lyrics = self._attempt_romaji_conversion(encoded_lyrics)
-
-                print("This is romaji lyrics")
-                print(romaji_lyrics)
 
                 if len(romaji_lyrics["romaji"]) != len(lyrics_arr):
                     romaji_lyrics["romaji"] = self._fix_missing_lines(
@@ -42,10 +38,6 @@ class RomajiAnnotator:
                 time.sleep(self.RETRY_DELAY)
 
     def _attempt_romaji_conversion(self, encoded_lyrics):
-
-        print("This is encoded lyrics")
-        print(encoded_lyrics)
-
         romaji_messages = [
             ROMAJI_ANNOTATION_SYSTEM_MESSAGE,
             {
@@ -65,9 +57,6 @@ class RomajiAnnotator:
                 "function": {"name": "convert_to_romaji"},
             },
         )
-
-        print("Raw GPT response:")
-        print(gpt_response)
 
         if gpt_response.choices[0].message.tool_calls:
             function_call = gpt_response.choices[0].message.tool_calls[0].function
@@ -127,4 +116,4 @@ class RomajiAnnotator:
                 return line
         except Exception as e:
             print(f"Error fixing single line: {str(e)}")
-            return line  # Return original line if conversion fails
+            return line

@@ -40,14 +40,15 @@ class AppwriteService:
     def file_exists_in_bucket(self, bucket_id: str, file_id: str) -> bool:
         """Check if a file exists in the specified bucket"""
         try:
-            # Use list_files instead of get_file_preview for more reliable existence check
-            files = self.storage.list_files(
-                bucket_id, queries=[f'equal("$id", "{file_id}")']
-            )
-            return len(files["files"]) > 0
+            # Try to get the file view - if successful, file exists
+            self.storage.get_file_view(bucket_id, file_id)
+            return True
         except AppwriteException as e:
+            # If file doesn't exist, Appwrite will return a 404 error
+            if "404" in str(e):
+                return False
+            # For other errors, log and re-raise
             print(f"Error checking file existence: {str(e)}")
-            # Re-raise the exception to handle it in the calling method
             raise
 
     def file_exists_in_lyrics_bucket(self, file_id: str) -> bool:
@@ -178,6 +179,32 @@ class AppwriteService:
         except Exception as e:
             print(f"Unexpected error uploading audio file {file_id}: {str(e)}")
             return False
+
+    def download_file(self, bucket_id: str, file_id: str, save_path: Path) -> bool:
+        """Download a file from specified bucket and save it locally"""
+        try:
+            # Ensure the directory exists
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Get file content
+            result = self.storage.get_file_download(bucket_id, file_id)
+
+            # Write to local file
+            with open(save_path, "wb") as f:
+                f.write(result)
+
+            return True
+        except AppwriteException as e:
+            print(f"Error downloading file {file_id}: {str(e)}")
+            return False
+
+    def download_lyrics(self, file_id: str, save_path: Path) -> bool:
+        """Download a lyrics file from the lyrics bucket"""
+        return self.download_file(self.lyrics_bucket_id, file_id, save_path)
+
+    def download_song(self, file_id: str, save_path: Path) -> bool:
+        """Download a song file from the songs bucket"""
+        return self.download_file(self.songs_bucket_id, file_id, save_path)
 
 
 # if __name__ == "__main__":

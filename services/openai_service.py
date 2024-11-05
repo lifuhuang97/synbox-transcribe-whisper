@@ -61,9 +61,6 @@ class OpenAIService:
 
         yield utils.stream_message("update", "Analyzing audio...")
 
-        # Get files before download
-        files_before = set(os.listdir("media"))
-
         try:
             # Download and validate video
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -92,7 +89,7 @@ class OpenAIService:
                     if file_path.exists():
                         result["subtitle_info"]["exist"] = True
                         result["subtitle_info"]["path"] = str(file_path)
-                        result["subtitle_info"]["ext"] = file_path.suffix
+                        result["subtitle_info"]["ext"] = filename[filename.find(".") :]
                         print(f"Found subtitle file: {file_path}")
 
             # Set audio path if file exists
@@ -156,36 +153,50 @@ class OpenAIService:
 
             # Upload files if validation passed
             if result["passed"] and self.appwrite_service:
-                # Upload song
-                yield utils.stream_message("update", "Uploading song to storage...")
-                upload_success = self.appwrite_service.upload_song(video_id)
+                # Check if song exists in cloud storage before attempting upload
+                if self.appwrite_service.file_exists_in_songs_bucket(f"{video_id}.m4a"):
+                    yield utils.stream_message(
+                        "update", "Song already exists in storage, skipping upload."
+                    )
+                else:
+                    # Upload song
+                    yield utils.stream_message("update", "Uploading song to storage...")
+                    upload_success = self.appwrite_service.upload_song(video_id)
 
-                if not upload_success:
-                    yield utils.stream_message("error", "Failed to upload song.")
-                    result["error_msg"] = "Failed to upload song."
-                    result["passed"] = False
-                    return
+                    if not upload_success:
+                        yield utils.stream_message("error", "Failed to upload song.")
+                        result["error_msg"] = "Failed to upload song."
+                        result["passed"] = False
+                        return
 
-                yield utils.stream_message(
-                    "update", "Song upload completed successfully."
-                )
-
-                # Upload subtitles if they exist
-                if result["subtitle_info"]["exist"]:
-                    yield utils.stream_message("update", "Uploading Japanese lyrics...")
-                    subtitle_upload_success = (
-                        self.appwrite_service.upload_youtube_subtitle(video_id)
+                    yield utils.stream_message(
+                        "update", "Song upload completed successfully."
                     )
 
-                    if subtitle_upload_success:
+                # Continue with subtitle handling if they exist
+                if result["subtitle_info"]["exist"]:
+                    yield utils.stream_message("update", "Uploading Japanese lyrics...")
+                    if self.appwrite_service.file_exists_in_lyrics_bucket(
+                        f"{video_id}{result['subtitle_info']['ext']}"
+                    ):
                         yield utils.stream_message(
-                            "update", "Japanese lyrics uploaded successfully."
+                            "update",
+                            "Japanese lyrics already exist in storage, skipping upload.",
                         )
                     else:
-                        yield utils.stream_message(
-                            "warning",
-                            "Japanese lyrics upload failed, but video validation passed.",
+                        subtitle_upload_success = (
+                            self.appwrite_service.upload_youtube_subtitle(video_id)
                         )
+
+                        if subtitle_upload_success:
+                            yield utils.stream_message(
+                                "update", "Japanese lyrics uploaded successfully."
+                            )
+                        else:
+                            yield utils.stream_message(
+                                "warning",
+                                "Japanese lyrics upload failed, but video validation passed.",
+                            )
 
             yield utils.stream_message("update", "Validation completed.")
             time.sleep(1)
@@ -198,42 +209,33 @@ class OpenAIService:
             yield utils.stream_message("error", result["error_msg"])
             return
 
-    def get_transcription(self, video_id, audio_file_path):
-        srt_save_path = f"./media/{video_id}.srt"
+    def get_transcription(self, video_id: str, audio_file_path: Path) -> str:
+        srt_save_path = Path(f"./media/{video_id}.srt")
 
-        # Check if the .srt file already exists
-        if os.path.exists(srt_save_path):
-            print(f"Existing .srt file found for {video_id}. Using the existing file.")
-            return srt_save_path
+        try:
+            with open(audio_file_path, "rb") as audio_file:
+                transcription = self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="ja",
+                    prompt=whisper_prompt,
+                    response_format="srt",
+                    timestamp_granularities=["segment"],
+                    temperature=0.77,
+                    # 0.37 0.77 0.82
+                )
 
-        with open(audio_file_path, "rb") as audio_file:
-            # ? change parameters to try to deal with fast songs
-            transcription = self.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="ja",
-                prompt=whisper_prompt,
-                response_format="srt",
-                timestamp_granularities=["segment"],
-                temperature=0.77,
-                # temperature=0.77,
-                # 0.37 0.77 0.82
-            )
-
-            print(transcription)
-            print("Above is transcription")
-
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(srt_save_path), exist_ok=True)
-
+            # Save transcription locally
+            os.makedirs(os.path.dirname(str(srt_save_path)), exist_ok=True)
             with open(srt_save_path, "w", encoding="utf-8") as output_file:
                 output_file.write(transcription)
 
-        print("GPT Transcription generated, processed, and saved successfully")
+            # Upload the cleansed SRT to cloud storage
+            self.appwrite_service.upload_srt_subtitle(video_id)
 
-        if transcription:
-            return srt_save_path
-        else:
+            return str(srt_save_path)
+        except Exception as e:
+            print(f"Error in transcription process: {str(e)}")
             return "Failed to get transcription"
 
     #! Helper Function - check video length
@@ -291,13 +293,8 @@ class OpenAIService:
             return None
 
     def get_translations(self, lyrics_arr, video_id, retry_count):
-
         TEMPERATURE_VALUES = [0.35, 0.15, 0.65]
-
         temperature = TEMPERATURE_VALUES[retry_count % len(TEMPERATURE_VALUES)]
-
-        print("This is the length of the input lyrics arr, ")
-        print(len(lyrics_arr))
 
         messages = [
             translation_setup_system_message,
