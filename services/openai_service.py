@@ -3,10 +3,10 @@ import glob
 import json
 import time
 from openai import OpenAI
+from pathlib import Path
 import yt_dlp
 from utils import utils
 
-from services.directory_manager import DirectoryManager
 from config import (
     TOOLS,
     VALIDATE_YOUTUBE_VIDEO_SYSTEM_MESSAGE,
@@ -25,15 +25,13 @@ whisper_prompt = WHISPER_PROMPT
 
 
 class OpenAIService:
-    def __init__(self, api_key):
+    def __init__(self, api_key, appwrite_service=None):
         self.client = OpenAI(api_key=api_key)
-        # self.MODEL = "gpt-4o-mini"
         self.MODEL = "gpt-4o"
-        DirectoryManager.ensure_all_directories()
+        self.appwrite_service = appwrite_service
+        Path("media").mkdir(exist_ok=True)
 
     def validate_video(self, video_id):
-        track_dir = DirectoryManager.get_path("output", "track")
-        DirectoryManager.ensure_directory(track_dir)
         result = {
             "passed": False,
             "audio_file_path": None,
@@ -52,129 +50,103 @@ class OpenAIService:
             "break_on_reject": True,
             "writeinfojson": True,
             "postprocessors": [
-                {  # Extract audio using ffmpeg
+                {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "m4a",
                 }
             ],
-            "outtmpl": "./output/track/%(id)s.%(ext)s",
-            "subtitlesoutopt": "./output/track/%(id)s.%(ext)s",
+            "outtmpl": "./media/%(id)s.%(ext)s",
+            "subtitlesoutopt": "./media/%(id)s.%(ext)s",
         }
-
-        full_vid_url = "https://www.youtube.com/watch?v=" + video_id
 
         yield utils.stream_message("update", "Analyzing audio...")
 
-        if not os.path.exists(track_dir):
-            DirectoryManager.ensure_directory(track_dir)
-            files_before = set()
-        else:
-            files_before = set(os.listdir(track_dir))
-
-        files_before = set(os.listdir("./output/track"))
+        # Get files before download
+        files_before = set(os.listdir("media"))
 
         try:
+            # Download and validate video
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                error_code = ydl.download(full_vid_url)
+                error_code = ydl.download(
+                    [f"https://www.youtube.com/watch?v={video_id}"]
+                )
                 if error_code:
                     result["error_msg"] = "Audio download failed"
                     yield utils.stream_message("error", result["error_msg"])
-                    yield utils.stream_message("data", result)
                     return
-        except Exception as e:
-            result["error_msg"] = f"An error occurred during video download: {str(e)}"
-            if (
-                str(e)
-                == "Encountered a video that did not match filter, stopping due to --break-match-filter"
-            ):
-                result["error_msg"] = (
-                    "The video length is invalid for processing, please try a different video."
-                )
-            yield utils.stream_message("error", result["error_msg"])
-            return
 
-        # Get the list of files after download
-        files_after = set(os.listdir("./output/track"))
+            # Instead of looking for new files, check for expected files directly
+            expected_files = [
+                f"{video_id}.m4a",
+                f"{video_id}.ja.vtt",
+                f"{video_id}.info.json",
+            ]
 
-        # Find new files
-        new_files = files_after - files_before
+            print("Checking for files:", expected_files)
+            for filename in expected_files:
+                file_path = Path("media") / filename
+                print(f"Checking if {file_path} exists:", file_path.exists())
 
-        # Look for new subtitle files
-        subtitle_extensions = (".vtt", ".srt", ".ass", ".ssa")
-        for file in new_files:
-            if file.endswith(subtitle_extensions) and video_id in file:
-                old_path = os.path.join("./output/track", file)
-                _, ext = os.path.splitext(file)
-                new_filename = f"{video_id}.ja{ext}"
-                new_path = os.path.join("./output/track", new_filename)
-                os.rename(old_path, new_path)
-                result["subtitle_info"]["exist"] = True
-                result["subtitle_info"]["path"] = new_path
-                result["subtitle_info"]["ext"] = ext
-                break
+                # Check for subtitle file
+                if filename.endswith((".vtt", ".srt", ".ass", ".ssa")):
+                    if file_path.exists():
+                        result["subtitle_info"]["exist"] = True
+                        result["subtitle_info"]["path"] = str(file_path)
+                        result["subtitle_info"]["ext"] = file_path.suffix
+                        print(f"Found subtitle file: {file_path}")
 
-        result["audio_file_path"] = "./output/track/" + video_id + ".m4a"
-        info_file_path = "./output/track/" + video_id + ".info.json"
+            # Set audio path if file exists
+            audio_path = Path("media") / f"{video_id}.m4a"
+            if audio_path.exists():
+                result["audio_file_path"] = str(audio_path)
+                print(f"Found audio file: {audio_path}")
 
-        try:
+            result["audio_file_path"] = str(Path("media") / f"{video_id}.m4a")
+            info_file_path = Path("media") / f"{video_id}.info.json"
+            # # Get new files
+
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
-        except Exception as e:
-            result["error_msg"] = (
-                f"Error reading video info: {str(e)}, please try again or try another video."
-            )
-            yield utils.stream_message("error", result["error_msg"])
-            return
 
-        result["full_vid_info"] = {
-            "id": video_id,
-            "thumbnail": json_vid_info.get("thumbnail"),
-            "views": json_vid_info.get("view_count"),
-            "duration": json_vid_info.get("duration"),
-            "likes": json_vid_info.get("like_count"),
-            "playable_in_embed": json_vid_info.get("playable_in_embed"),
-            "title": json_vid_info.get("fulltitle", json_vid_info.get("title")),
-            "categories": json_vid_info.get("categories", []),
-            "description": json_vid_info.get("description"),
-            "channel_name": json_vid_info.get("channel"),
-            "uploader": json_vid_info.get("uploader"),
-            "language": json_vid_info.get("language"),
-        }
+            # Process video info
+            result["full_vid_info"] = {
+                "id": video_id,
+                "thumbnail": json_vid_info.get("thumbnail"),
+                "views": json_vid_info.get("view_count"),
+                "duration": json_vid_info.get("duration"),
+                "likes": json_vid_info.get("like_count"),
+                "playable_in_embed": json_vid_info.get("playable_in_embed"),
+                "title": json_vid_info.get("fulltitle", json_vid_info.get("title")),
+                "categories": json_vid_info.get("categories", []),
+                "description": json_vid_info.get("description"),
+                "channel_name": json_vid_info.get("channel"),
+                "uploader": json_vid_info.get("uploader"),
+                "language": json_vid_info.get("language"),
+            }
 
-        result["vid_info_for_validation"] = {
-            "title": result["full_vid_info"]["title"],
-            "categories": result["full_vid_info"]["categories"],
-            "description": result["full_vid_info"]["description"],
-            "channel_name": result["full_vid_info"]["channel_name"],
-            "uploader": result["full_vid_info"]["uploader"],
-            "language": result["full_vid_info"]["language"],
-        }
+            result["vid_info_for_validation"] = {
+                "title": result["full_vid_info"]["title"],
+                "categories": result["full_vid_info"]["categories"],
+                "description": result["full_vid_info"]["description"],
+                "channel_name": result["full_vid_info"]["channel_name"],
+                "uploader": result["full_vid_info"]["uploader"],
+                "language": result["full_vid_info"]["language"],
+            }
 
-        subtitle_pattern = f"./output/track/{video_id}.ja.*"
-        subtitle_files = glob.glob(subtitle_pattern)
-        if subtitle_files:
-            result["subtitle_info"]["exist"] = True
-            subtitle_file = subtitle_files[0]
-            result["subtitle_info"]["path"] = subtitle_file
-            _, ext = os.path.splitext(subtitle_file)
-            result["subtitle_info"]["ext"] = ext
+            # Check if video is playable
+            if not result["full_vid_info"]["playable_in_embed"]:
+                result["error_msg"] = (
+                    "Video is not playable outside of YouTube, please try another video."
+                )
+                yield utils.stream_message("error", result["error_msg"])
+                return
 
-        if not result["full_vid_info"]["playable_in_embed"]:
-            result["error_msg"] = (
-                "Video is not playable outside of YouTube, please try another video."
-            )
-            yield utils.stream_message("error", result["error_msg"])
-            return
+            # Validate video
+            result["passed"] = (
+                result["full_vid_info"]["language"] == "ja"
+                and "Music" in result["full_vid_info"]["categories"]
+            ) or self.validate_youtube_video(result["vid_info_for_validation"])
 
-        if (
-            result["full_vid_info"]["language"] == "ja"
-            and "Music" in result["full_vid_info"]["categories"]
-        ):
-            result["passed"] = True
-        else:
-            result["passed"] = self.validate_youtube_video(
-                result["vid_info_for_validation"]
-            )
             if not result["passed"]:
                 result["error_msg"] = (
                     "This video is not a Japanese music video, please try another video."
@@ -182,14 +154,52 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-        yield utils.stream_message("update", "Validation completed.")
-        time.sleep(1)
-        yield utils.stream_message("vid_info", result)
+            # Upload files if validation passed
+            if result["passed"] and self.appwrite_service:
+                # Upload song
+                yield utils.stream_message("update", "Uploading song to storage...")
+                upload_success = self.appwrite_service.upload_song(video_id)
+
+                if not upload_success:
+                    yield utils.stream_message("error", "Failed to upload song.")
+                    result["error_msg"] = "Failed to upload song."
+                    result["passed"] = False
+                    return
+
+                yield utils.stream_message(
+                    "update", "Song upload completed successfully."
+                )
+
+                # Upload subtitles if they exist
+                if result["subtitle_info"]["exist"]:
+                    yield utils.stream_message("update", "Uploading Japanese lyrics...")
+                    subtitle_upload_success = (
+                        self.appwrite_service.upload_youtube_subtitle(video_id)
+                    )
+
+                    if subtitle_upload_success:
+                        yield utils.stream_message(
+                            "update", "Japanese lyrics uploaded successfully."
+                        )
+                    else:
+                        yield utils.stream_message(
+                            "warning",
+                            "Japanese lyrics upload failed, but video validation passed.",
+                        )
+
+            yield utils.stream_message("update", "Validation completed.")
+            time.sleep(1)
+            yield utils.stream_message("vid_info", result)
+
+        except Exception as e:
+            result["error_msg"] = (
+                f"Error processing video: {str(e)}, please try again or try another video."
+            )
+            yield utils.stream_message("error", result["error_msg"])
+            return
 
     def get_transcription(self, video_id, audio_file_path):
-        response_srt_dir = DirectoryManager.get_path("output", "response_srt")
-        DirectoryManager.ensure_directory(response_srt_dir)
-        srt_save_path = f"./output/response_srt/{video_id}.srt"
+        srt_save_path = f"./media/{video_id}.srt"
 
         # Check if the .srt file already exists
         if os.path.exists(srt_save_path):

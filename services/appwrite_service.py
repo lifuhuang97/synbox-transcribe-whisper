@@ -1,171 +1,182 @@
 from pathlib import Path
-from dotenv import load_dotenv
+from typing import Optional
+from dataclasses import dataclass
 import os
 from appwrite.client import Client
 from appwrite.services.storage import Storage
-from appwrite.input_file import InputFile
+from appwrite.payload import Payload
+from appwrite.exception import AppwriteException
 
-# Get the project root directory (assuming this file is in the root)
-ROOT_DIR = Path(__file__).parent.parent.resolve()
 
-# Default paths relative to project root
-load_dotenv()
+@dataclass
+class SubtitleFile:
+    """Represents a subtitle file with its path and extension"""
 
-DEFAULT_LYRICS_DIR = ROOT_DIR / "output" / "response_srt"
-DEFAULT_SONGS_DIR = ROOT_DIR / "output" / "track"
-DEFAULT_TRANSCRIPTIONS_DIR = ROOT_DIR / "output" / "cached_translations"
-DEFAULT_SUBTITLES_DIR = (
-    ROOT_DIR / "output" / "track"
-)  # Same as songs dir based on validate_video
+    exists: bool
+    path: Optional[Path]
+    extension: Optional[str]
 
 
 class AppwriteService:
-    def __init__(self, lyrics_dir=DEFAULT_LYRICS_DIR, songs_dir=DEFAULT_SONGS_DIR):
+    """Service for managing audio and subtitle files in Appwrite storage"""
+
+    SUPPORTED_SUBTITLE_FORMATS = (".ja.vtt", ".ja.srt", ".ja.ass", ".ja.ssa")
+    SUPPORTED_AUDIO_FORMATS = (".m4a", ".mp4")
+
+    def __init__(self):
+        # Initialize Appwrite client
         self.client = Client()
-        self.project_id = os.getenv("APPWRITE_PROJECT_ID")
-        self.api_secret = os.getenv("APPWRITE_KEY")
         self.client.set_endpoint("https://cloud.appwrite.io/v1")
-        self.client.set_project(self.project_id)
-        self.client.set_key(self.api_secret)
+        self.client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        self.client.set_key(os.getenv("APPWRITE_KEY"))
 
-        self.songs_storage_id = os.getenv("APPWRITE_STORAGE_SONGS_ID")
-        self.lyrics_storage_id = os.getenv("APPWRITE_STORAGE_LYRICS_ID")
-
+        # Initialize storage service
         self.storage = Storage(self.client)
-        self.lyrics_dir = lyrics_dir
-        self.songs_dir = songs_dir
 
-    def upload_lyrics(self, video_id, data, lyrics_type=None):
-        print("appwrite upload lyrics for id: ", video_id)
+        # Get bucket IDs from environment
+        self.lyrics_bucket_id = os.getenv("APPWRITE_STORAGE_LYRICS_ID")
+        self.songs_bucket_id = os.getenv("APPWRITE_STORAGE_SONGS_ID")
 
-        # Determine filename and file_id based on lyrics_type
-        if lyrics_type:
-            filename = f"{video_id}_{lyrics_type}.txt"
-            file_id = f"{video_id}_{lyrics_type}"
-        else:
-            filename = f"{video_id}.srt"
-            file_id = video_id
-
-        result = self.storage.create_file(
-            bucket_id=self.lyrics_storage_id,
-            file_id=file_id,
-            file=InputFile.from_bytes(data, filename),
-        )
-
-        print(result)
-
-    def upload_subtitles(self, video_id, subtitle_info):
-        """
-        Upload subtitle file from validate_video result
-
-        Args:
-            video_id (str): The video ID
-            subtitle_info (dict): Dictionary containing subtitle information with keys:
-                - exist (bool): Whether subtitles exist
-                - path (str): Path to the subtitle file
-                - ext (str): File extension of the subtitle file
-        """
-        if not subtitle_info["exist"] or not subtitle_info["path"]:
-            print(f"No subtitle file found for video ID: {video_id}")
-            return False
-
+    def file_exists_in_bucket(self, bucket_id: str, file_id: str) -> bool:
+        """Check if a file exists in the specified bucket"""
         try:
-            with open(subtitle_info["path"], "rb") as f:
-                # Create a unique file_id for subtitles
-                file_id = f"{video_id}_original_subtitle"
-                filename = f"{video_id}.ja{subtitle_info['ext']}"
+            # Use list_files instead of get_file_preview for more reliable existence check
+            files = self.storage.list_files(
+                bucket_id, queries=[f'equal("$id", "{file_id}")']
+            )
+            return len(files["files"]) > 0
+        except AppwriteException as e:
+            print(f"Error checking file existence: {str(e)}")
+            # Re-raise the exception to handle it in the calling method
+            raise
 
-                result = self.storage.create_file(
-                    bucket_id=self.lyrics_storage_id,
-                    file_id=file_id,
-                    file=InputFile.from_bytes(f.read(), filename),
-                )
-                print(f"Successfully uploaded subtitle file for {video_id}")
-                return True
-        except Exception as e:
-            print(f"Error uploading subtitles for {video_id}: {str(e)}")
-            return False
-
-    def upload_song(self, video_id, song_data):
-        print("appwrite upload song file for id: ", video_id)
-
-        filename = f"{video_id}.m4a"
-        result = self.storage.create_file(
-            bucket_id=self.songs_storage_id,
-            file_id=video_id,
-            file=InputFile.from_bytes(song_data, filename),
-        )
-
-        print(result)
-
-    def find_song_file(self, video_id: str, songs_dir: Path = None) -> Path | None:
-        """
-        Find a song file for a specific video ID
-        Expected format: {video_id}.m4a
-        """
-        search_dir = songs_dir or self.songs_dir
-        song_path = search_dir / f"{video_id}.m4a"
-        return song_path if song_path.exists() else None
-
-    def find_lyrics_file(
-        self, video_id: str, lyrics_type: str = None, lyrics_dir: Path = None
-    ) -> Path | None:
-        """
-        Find a lyrics file for a specific video ID and optional type
-        If lyrics_type is provided: {video_id}_{type}.txt
-        If no lyrics_type: {video_id}.srt
-        """
-        search_dir = lyrics_dir or self.lyrics_dir
-
-        if lyrics_type:
-            search_dir = DEFAULT_TRANSCRIPTIONS_DIR
-
-        if lyrics_type:
-            lyrics_path = search_dir / f"{video_id}_{lyrics_type}.txt"
-        else:
-            lyrics_path = search_dir / f"{video_id}.srt"
-
-        return lyrics_path if lyrics_path.exists() else None
-
-    def upload_song_by_id(self, video_id: str, songs_dir: Path = None) -> bool:
-        """
-        Find and upload a song file by video ID
-        Returns True if successful, False otherwise
-        """
-        song_file = self.find_song_file(video_id, songs_dir)
-        if not song_file:
-            print(f"No song file found for video ID: {video_id}")
-            return False
-
+    def file_exists_in_lyrics_bucket(self, file_id: str) -> bool:
+        """Check if a file exists in the lyrics bucket"""
         try:
-            with open(song_file, "rb") as f:
-                self.upload_song(video_id, f.read())
-            return True
-        except Exception as e:
-            print(f"Error uploading song {video_id}: {str(e)}")
+            return self.file_exists_in_bucket(self.lyrics_bucket_id, file_id)
+        except AppwriteException as e:
+            print(f"Error checking lyrics file: {str(e)}")
+            # Return False and log error instead of crashing
             return False
 
-    def upload_lyrics_by_id(
-        self, video_id: str, lyrics_type: str = None, lyrics_dir: Path = None
+    def file_exists_in_songs_bucket(self, file_id: str) -> bool:
+        """Check if a file exists in the songs bucket"""
+        try:
+            return self.file_exists_in_bucket(self.songs_bucket_id, file_id)
+        except AppwriteException as e:
+            print(f"Error checking song file: {str(e)}")
+            # Return False and log error instead of crashing
+            return False
+
+    def find_youtube_subtitle(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> SubtitleFile:
+        """
+        Find YouTube subtitle file in various formats (.ja.vtt, .ja.srt, .ja.ass, .ja.ssa)
+        """
+        for ext in self.SUPPORTED_SUBTITLE_FORMATS:
+            subtitle_path = media_dir / f"{video_id}{ext}"
+            if subtitle_path.exists():
+                return SubtitleFile(exists=True, path=subtitle_path, extension=ext)
+
+        return SubtitleFile(exists=False, path=None, extension=None)
+
+    def upload_youtube_subtitle(
+        self, video_id: str, media_dir: Path = Path("media")
     ) -> bool:
         """
-        Find and upload a lyrics file by video ID and optional type
-        If lyrics_type is provided: looks for {video_id}_{type}.txt
-        If no lyrics_type: looks for {video_id}.srt
-        Returns True if successful, False otherwise
+        Upload YouTube subtitle file to lyrics bucket.
+        The file should be in format: {video_id}.ja.{vtt/srt/ass/ssa}
         """
-        lyrics_file = self.find_lyrics_file(video_id, lyrics_type, lyrics_dir)
-        if not lyrics_file:
-            type_msg = f" and type: {lyrics_type}" if lyrics_type else ""
-            print(f"No lyrics file found for video ID: {video_id}{type_msg}")
+        subtitle = self.find_youtube_subtitle(video_id, media_dir)
+        if not subtitle.exists:
+            print(f"No YouTube subtitle found for video ID: {video_id}")
             return False
 
+        file_id = f"{video_id}{subtitle.extension}"
+
+        # Check if file already exists
+        if self.file_exists_in_lyrics_bucket(file_id):
+            print(f"Subtitle already exists in storage: {file_id}")
+            return True
+
         try:
-            with open(lyrics_file, "rb") as f:
-                self.upload_lyrics(video_id, f.read(), lyrics_type)
+            payload = Payload.from_file(subtitle.path, filename=file_id)
+            self.storage.create_file(
+                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
+            )
+            print(f"Successfully uploaded YouTube subtitle: {file_id}")
             return True
         except Exception as e:
-            print(f"Error uploading lyrics {video_id}: {str(e)}")
+            print(f"Error uploading YouTube subtitle {file_id}: {str(e)}")
+            return False
+
+    def upload_srt_subtitle(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> bool:
+        """
+        Upload cleaned up .srt file to lyrics bucket.
+        The file should be in format: {video_id}.srt
+        """
+        srt_path = media_dir / f"{video_id}.srt"
+        if not srt_path.exists():
+            print(f"No SRT file found for video ID: {video_id}")
+            return False
+
+        file_id = f"{video_id}.srt"
+
+        # Check if file already exists
+        if self.file_exists_in_lyrics_bucket(file_id):
+            print(f"SRT file already exists in storage: {file_id}")
+            return True
+
+        try:
+            payload = Payload.from_file(srt_path, filename=file_id)
+            self.storage.create_file(
+                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
+            )
+            print(f"Successfully uploaded SRT file: {file_id}")
+            return True
+        except Exception as e:
+            print(f"Error uploading SRT file {file_id}: {str(e)}")
+            return False
+
+    def upload_song(self, video_id: str, media_dir: Path = Path("media")) -> bool:
+        """
+        Upload audio file to songs bucket.
+        Supports .m4a and .mp4 formats
+        """
+        # Try to find the audio file
+        audio_file = None
+        for ext in self.SUPPORTED_AUDIO_FORMATS:
+            potential_path = media_dir / f"{video_id}{ext}"
+            if potential_path.exists():
+                audio_file = potential_path
+                break
+
+        if not audio_file:
+            print(f"No audio file found for video ID: {video_id}")
+            return False
+
+        file_id = audio_file.name
+
+        try:
+            # Check if file already exists
+            if self.file_exists_in_songs_bucket(file_id):
+                print(f"Audio file already exists in storage: {file_id}")
+                return True
+
+            payload = Payload.from_file(audio_file, filename=file_id)
+            self.storage.create_file(
+                bucket_id=self.songs_bucket_id, file_id=file_id, file=payload
+            )
+            print(f"Successfully uploaded audio file: {file_id}")
+            return True
+        except AppwriteException as e:
+            print(f"Appwrite error uploading audio file {file_id}: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error uploading audio file {file_id}: {str(e)}")
             return False
 
 

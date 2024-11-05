@@ -1,7 +1,6 @@
 import sys
 import os
 import time
-
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS, cross_origin
@@ -9,8 +8,6 @@ from flask_cors import CORS, cross_origin
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
-from services.directory_manager import DirectoryManager
-
 from utils import utils
 
 load_dotenv()
@@ -19,9 +16,20 @@ sys.path.append("../")
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-DirectoryManager.ensure_all_directories()
-openai_service = OpenAIService(api_key=os.getenv("OPENAI_KEY"))
+# Create necessary directories
+MEDIA_DIR = "media"
+OUTPUT_TRACK_DIR = os.path.join("output", "track")
+
+# Ensure directories exist
+if not os.path.exists(MEDIA_DIR):
+    os.makedirs(MEDIA_DIR)
+if not os.path.exists(OUTPUT_TRACK_DIR):
+    os.makedirs(OUTPUT_TRACK_DIR)
+
 appwrite_service = AppwriteService()
+openai_service = OpenAIService(
+    api_key=os.getenv("OPENAI_KEY"), appwrite_service=appwrite_service
+)
 romaji_annotator = RomajiAnnotator(api_key=os.getenv("OPENAI_KEY"))
 
 
@@ -51,6 +59,7 @@ def validation_endpoint():
 
     def generate():
         if request.method == "POST":
+
             yield utils.stream_message("update", "Initializing...")
             time.sleep(0.3)
             yield utils.stream_message("update", "Parsing request data...")
@@ -59,25 +68,24 @@ def validation_endpoint():
             try:
                 data = request.json
                 video_id = data.get("id")
-
+                print("video id received: " + video_id)
                 if not video_id:
                     raise ValueError("Invalid or missing video ID in request.")
 
-                yield utils.stream_message(
-                    "update",
-                    f"Received Video ID {video_id}",
-                )
+                yield utils.stream_message("update", f"Received Video ID {video_id}")
                 time.sleep(0.4)
 
                 yield utils.stream_message("update", "Gathering video metadata...")
                 time.sleep(1)
 
+                # Stream validation updates (now includes upload)
                 for update in openai_service.validate_video(video_id):
                     yield update
 
             except ValueError as ve:
                 yield utils.stream_message("error", f"Validation Error: {str(ve)}")
             except Exception as e:
+                print("VALIDATION ERROR ")
                 yield utils.stream_message(
                     "error", f"An unexpected error occurred: {str(e)}"
                 )
@@ -214,9 +222,7 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                cache_dir = DirectoryManager.get_path("output", "cached_translations")
-                DirectoryManager.ensure_directory(cache_dir)
-                os.makedirs(cache_dir, exist_ok=True)
+                cache_dir = Path("media")
 
                 eng_cache_path = os.path.join(cache_dir, f"{video_id}_eng.txt")
                 chi_cache_path = os.path.join(cache_dir, f"{video_id}_chi.txt")
