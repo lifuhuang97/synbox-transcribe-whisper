@@ -15,7 +15,16 @@ load_dotenv(override=True)
 sys.path.append("../")
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(
+    app,
+    resources={
+        r"/*": {
+            "origins": ["https://synbox.io"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        }
+    },
+)
 
 # Create necessary directories
 MEDIA_DIR = "media"
