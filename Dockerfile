@@ -18,7 +18,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Expose port 8080, required by Cloud Run
-EXPOSE 8080
+EXPOSE $PORT
 
 # Update Gunicorn command with additional parameters
-CMD ["sh", "-c", "gunicorn -b 0.0.0.0:8080 --workers=2 --threads=8 --timeout=0 app:app"]
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:$PORT --workers=2 --threads=8 --timeout=0 app:app"]

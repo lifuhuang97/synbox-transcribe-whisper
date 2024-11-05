@@ -376,6 +376,7 @@ def translate_annotate_endpoint():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    # Enable debug only in development environment
     is_development = os.environ.get("ENVIRONMENT", "development") == "development"
-    app.run(host="0.0.0.0", port=port, debug=is_development)
+    app.run(
+        host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=is_development
+    )
