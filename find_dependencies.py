@@ -4,6 +4,16 @@ import sys
 from pathlib import Path
 
 
+def is_local_module(module_name, directory):
+    """Check if the module is a local directory or .py file."""
+    module_path = Path(directory) / module_name
+    return (
+        module_path.is_dir()
+        or module_path.with_suffix(".py").is_file()
+        or module_name.startswith(".")
+    )
+
+
 def find_imports(file_path):
     """Parse Python file and extract all imports."""
     with open(file_path, "r", encoding="utf-8") as file:
@@ -41,17 +51,40 @@ def scan_directory(directory):
     return all_imports
 
 
-def filter_stdlib_modules(imports):
-    """Remove standard library modules from the import list."""
+def filter_modules(imports, directory):
+    """Remove standard library modules and local modules from the import list."""
     stdlib_modules = sys.stdlib_module_names
-    return {imp for imp in imports if imp not in stdlib_modules}
+    external_imports = set()
+    local_modules = set()
+
+    for imp in imports:
+        if imp not in stdlib_modules:
+            if is_local_module(imp, directory):
+                local_modules.add(imp)
+            else:
+                external_imports.add(imp)
+
+    return external_imports, local_modules
 
 
 if __name__ == "__main__":
     directory = "."  # Current directory
     all_imports = scan_directory(directory)
-    external_imports = filter_stdlib_modules(all_imports)
+    external_imports, local_modules = filter_modules(all_imports, directory)
 
     print("\nFound external dependencies:")
     for imp in sorted(external_imports):
         print(imp)
+
+    print("\nLocal modules:")
+    for imp in sorted(local_modules):
+        print(imp)
+
+    print("\nInstall command:")
+    # Map some common package name differences
+    package_map = {
+        "dotenv": "python-dotenv",
+    }
+
+    packages = [package_map.get(imp, imp) for imp in external_imports]
+    print(f"pip install {' '.join(packages)}")
