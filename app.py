@@ -76,7 +76,6 @@ def validation_endpoint():
             try:
                 data = request.json
                 video_id = data.get("id")
-                print("video id received: " + video_id)
                 if not video_id:
                     raise ValueError("Invalid or missing video ID in request.")
 
@@ -120,7 +119,6 @@ def transcription_endpoint_v2():
             subtitle_exist = subtitle_info["exist"]
 
             try:
-                appwrite_service = AppwriteService()
                 temp_dir = Path("./temp")
                 temp_dir.mkdir(exist_ok=True)
 
@@ -128,9 +126,6 @@ def transcription_endpoint_v2():
                     yield utils.stream_message(
                         "update", "Retrieving existing subtitles..."
                     )
-
-                    print("subtitle info is: ")
-                    print(subtitle_info)
 
                     subtitle_ext = subtitle_info["ext"]
                     subtitle_file_path = temp_dir / f"{video_id}{subtitle_ext}"
@@ -202,17 +197,10 @@ def transcription_endpoint_v2():
                     # Extract the filtered_srt content
                     srt_content = transcription_result["filtered_srt"]
 
-                    # Debug logging
-                    # print(f"SRT content type: {type(srt_content)}")
-                    # print(
-                    #     f"SRT content preview: {srt_content[:200]}..."
-                    # )  # First 200 chars
-
                     processed_srt_path = temp_dir / f"{video_id}.srt"
                     with open(processed_srt_path, "w", encoding="utf-8") as f:
                         f.write(srt_content)
 
-                    # appwrite_service.upload_srt_subtitle(video_id, temp_dir)
 
                     ai_generated = True
                     yield utils.stream_message(
@@ -221,9 +209,6 @@ def transcription_endpoint_v2():
 
                 for file in temp_dir.glob(f"{video_id}*"):
                     file.unlink(missing_ok=True)
-
-                print("This is srt content")
-                print(srt_content)
 
                 yield utils.stream_message("ai_generated", ai_generated)
                 yield utils.stream_message(

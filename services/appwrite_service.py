@@ -24,6 +24,14 @@ class AppwriteService:
     SUPPORTED_AUDIO_FORMATS = (".m4a", ".mp4")
 
     def __init__(self):
+        # Check for required environment variables
+        required_env_vars = ["APPWRITE_PROJECT_ID", "APPWRITE_KEY"]
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+        if missing_vars:
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing_vars)}"
+            )
+
         # Initialize Appwrite client
         self.client = Client()
         self.client.set_endpoint("https://cloud.appwrite.io/v1")
@@ -36,6 +44,9 @@ class AppwriteService:
         # Get bucket IDs from environment
         self.lyrics_bucket_id = os.getenv("APPWRITE_STORAGE_LYRICS_ID")
         self.songs_bucket_id = os.getenv("APPWRITE_STORAGE_SONGS_ID")
+
+        if not all([self.lyrics_bucket_id, self.songs_bucket_id]):
+            raise ValueError("Missing required bucket IDs")
 
     def file_exists_in_bucket(self, bucket_id: str, file_id: str) -> bool:
         """Check if a file exists in the specified bucket"""
@@ -205,6 +216,81 @@ class AppwriteService:
     def download_song(self, file_id: str, save_path: Path) -> bool:
         """Download a song file from the songs bucket"""
         return self.download_file(self.songs_bucket_id, file_id, save_path)
+
+    def upload_metadata(self, video_id: str, media_dir: Path = Path("media")) -> bool:
+        """Upload metadata JSON file to songs bucket"""
+        metadata_path = media_dir / f"{video_id}.info.json"
+        if not metadata_path.exists():
+            print(f"No metadata file found for video ID: {video_id}")
+            return False
+
+        file_id = f"{video_id}.info.json"
+
+        try:
+            if self.file_exists_in_songs_bucket(file_id):
+                print(f"Metadata file already exists in storage: {file_id}")
+                return True
+
+            payload = Payload.from_file(metadata_path, filename=file_id)
+            self.storage.create_file(
+                bucket_id=self.songs_bucket_id, file_id=file_id, file=payload
+            )
+            print(f"Successfully uploaded metadata file: {file_id}")
+            return True
+        except Exception as e:
+            print(f"Error uploading metadata file {file_id}: {str(e)}")
+            return False
+
+    def download_metadata(self, file_id: str, save_path: Path) -> bool:
+        """Download a metadata file from the songs bucket"""
+        return self.download_file(self.songs_bucket_id, file_id, save_path)
+
+    def upload_song_with_metadata(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> tuple[bool, bool]:
+        """Upload both song and metadata files as a pair"""
+        song_success = self.upload_song(video_id, media_dir)
+        metadata_success = self.upload_metadata(video_id, media_dir)
+        return song_success, metadata_success
+
+    def get_or_download_video_files(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> tuple[bool, str]:
+        """
+        Check if files exist in storage and download them, or return False if they don't exist.
+        Returns (success, error_message)
+        """
+        song_file = media_dir / f"{video_id}.m4a"
+        metadata_file = media_dir / f"{video_id}.info.json"
+
+        # Check if both files exist in storage
+        song_exists = self.file_exists_in_songs_bucket(f"{video_id}.m4a")
+        metadata_exists = self.file_exists_in_songs_bucket(f"{video_id}.info.json")
+
+        # If either file is missing in storage, return False
+        if not (song_exists and metadata_exists):
+            return False, "Files not found in storage"
+
+        # Download both files
+        song_download = self.download_song(f"{video_id}.m4a", song_file)
+        metadata_download = self.download_metadata(
+            f"{video_id}.info.json", metadata_file
+        )
+
+        if not (song_download and metadata_download):
+            return False, "Failed to download files from storage"
+
+        return True, ""
+
+    def verify_connection(self) -> bool:
+        """Verify connection to Appwrite by attempting to list buckets"""
+        try:
+            # Try to list buckets or get a bucket to verify connection
+            self.storage.list_buckets()
+            return True
+        except AppwriteException as e:
+            print(f"Failed to verify Appwrite connection: {str(e)}")
+            return False
 
 
 # if __name__ == "__main__":

@@ -32,6 +32,9 @@ class TranscriptionValidationError(Exception):
 
 class OpenAIService:
     def __init__(self, api_key, organization, project, appwrite_service=None):
+        if not all([api_key, organization, project]):
+            raise ValueError("Missing required OpenAI credentials")
+
         self.PROJECT_ROOT = Path(__file__).parent.parent
         self.client = OpenAI(
             api_key=api_key,
@@ -39,10 +42,23 @@ class OpenAIService:
             project=project,
         )
         self.MODEL = "gpt-4o"
+
+        # Verify Appwrite service is properly initialized if provided
+        if appwrite_service:
+            if (
+                not appwrite_service.verify_connection()
+            ):  # Add this method to AppwriteService
+                raise ValueError("Appwrite service connection failed")
         self.appwrite_service = appwrite_service
+
         Path("media").mkdir(exist_ok=True)
 
     def validate_video(self, video_id):
+        # Check if appwrite service is available when needed
+        if not self.appwrite_service:
+            yield utils.stream_message("error", "Storage service not configured")
+            return
+
         result = {
             "passed": False,
             "audio_file_path": None,
@@ -52,80 +68,68 @@ class OpenAIService:
             "error_msg": None,
         }
 
-        ydl_opts = {
-            "match_filter": self.longer_than_eight_mins,
-            "format": "m4a/bestaudio/best",
-            "writesubtitles": True,
-            "subtitlesformat": "vtt/srt/ass/ssa",
-            "subtitleslangs": ["ja.*"],
-            "break_on_reject": True,
-            "writeinfojson": True,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "m4a",
-                }
-            ],
-            "outtmpl": "./media/%(id)s.%(ext)s",
-            "subtitlesoutopt": "./media/%(id)s.%(ext)s",
-        }
-
-        # Check storage status first
-        song_exists_in_storage = False
-        if self.appwrite_service:
-            song_exists_in_storage = self.appwrite_service.file_exists_in_songs_bucket(
-                f"{video_id}.m4a"
-            )
-            if song_exists_in_storage:
-                yield utils.stream_message("update", "Song already exists in storage.")
-
-        yield utils.stream_message("update", "Analyzing audio...")
+        media_dir = Path("media")
+        media_dir.mkdir(exist_ok=True)
 
         try:
-            # Always download to get metadata and validate
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                error_code = ydl.download(
-                    [f"https://www.youtube.com/watch?v={video_id}"]
+            # First, try to get files from storage
+            yield utils.stream_message(
+                "update", "Checking storage for existing files..."
+            )
+            files_exist, error = self.appwrite_service.get_or_download_video_files(
+                video_id
+            )
+
+            if not files_exist:
+                # If files don't exist in storage, download them using yt-dlp
+                yield utils.stream_message("update", "Downloading from YouTube...")
+
+                ydl_opts = {
+                    "match_filter": self.longer_than_eight_mins,
+                    "format": "m4a/bestaudio/best",
+                    "writesubtitles": True,
+                    "subtitlesformat": "vtt/srt/ass/ssa",
+                    "subtitleslangs": ["ja.*"],
+                    "break_on_reject": True,
+                    "writeinfojson": True,
+                    "postprocessors": [
+                        {
+                            "key": "FFmpegExtractAudio",
+                            "preferredcodec": "m4a",
+                        }
+                    ],
+                    "outtmpl": "./media/%(id)s.%(ext)s",
+                    "subtitlesoutopt": "./media/%(id)s.%(ext)s",
+                }
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    error_code = ydl.download(
+                        [f"https://www.youtube.com/watch?v={video_id}"]
+                    )
+                    if error_code:
+                        result["error_msg"] = "Failed to download video"
+                        yield utils.stream_message("error", result["error_msg"])
+                        return
+
+                # Upload both files to storage as a pair
+                yield utils.stream_message("update", "Saving audio...")
+                song_success, metadata_success = (
+                    self.appwrite_service.upload_song_with_metadata(video_id)
                 )
-                if error_code:
-                    result["error_msg"] = "Audio download failed"
+
+                if not (song_success and metadata_success):
+                    result["error_msg"] = "Failed to save audio"
                     yield utils.stream_message("error", result["error_msg"])
                     return
 
-            # Check for expected files
-            expected_files = [
-                f"{video_id}.m4a",
-                f"{video_id}.ja.vtt",
-                f"{video_id}.info.json",
-            ]
+                yield utils.stream_message("update", "Files uploaded successfully.")
 
-            print("Checking for files:", expected_files)
-            for filename in expected_files:
-                file_path = Path("media") / filename
-                print(f"Checking if {file_path} exists:", file_path.exists())
-
-                # Check for subtitle file
-                if filename.endswith((".vtt", ".srt", ".ass", ".ssa")):
-                    if file_path.exists():
-                        result["subtitle_info"]["exist"] = True
-                        result["subtitle_info"]["path"] = str(file_path)
-                        result["subtitle_info"]["ext"] = filename[filename.find(".") :]
-                        print(f"Found subtitle file: {file_path}")
-
-            # Set audio path if file exists
-            audio_path = Path("media") / f"{video_id}.m4a"
-            if audio_path.exists():
-                result["audio_file_path"] = str(audio_path)
-                print(f"Found audio file: {audio_path}")
-
-            result["audio_file_path"] = str(Path("media") / f"{video_id}.m4a")
-            info_file_path = Path("media") / f"{video_id}.info.json"
-
-            # Process video info from the downloaded json
+            # Process video info from the metadata file
+            info_file_path = media_dir / f"{video_id}.info.json"
             with open(info_file_path, "r", encoding="utf-8") as file:
                 json_vid_info = json.load(file)
 
-            # Process video info
+            # Rest of the validation logic remains the same...
             result["full_vid_info"] = {
                 "id": video_id,
                 "thumbnail": json_vid_info.get("thumbnail"),
@@ -150,7 +154,9 @@ class OpenAIService:
                 "language": result["full_vid_info"]["language"],
             }
 
-            # Check if video is playable
+            # Set audio path
+            result["audio_file_path"] = str(media_dir / f"{video_id}.m4a")
+
             if not result["full_vid_info"]["playable_in_embed"]:
                 result["error_msg"] = (
                     "Video is not playable outside of YouTube, please try another video."
@@ -158,7 +164,6 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-            # Validate video
             result["passed"] = (
                 result["full_vid_info"]["language"] == "ja"
                 and "Music" in result["full_vid_info"]["categories"]
@@ -171,52 +176,44 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-            # Handle upload only if validation passed and song doesn't exist in storage
-            if result["passed"] and self.appwrite_service:
-                if not song_exists_in_storage:
-                    # Upload song
-                    yield utils.stream_message("update", "Uploading song to storage...")
-                    upload_success = self.appwrite_service.upload_song(video_id)
-
-                    if not upload_success:
-                        yield utils.stream_message("error", "Failed to upload song.")
-                        result["error_msg"] = "Failed to upload song."
-                        result["passed"] = False
-                        return
+            # Handle subtitles if they exist
+            if self.appwrite_service:
+                subtitle = self.appwrite_service.find_youtube_subtitle(video_id)
+                if subtitle.exists:
+                    result["subtitle_info"] = {
+                        "exist": True,
+                        "path": str(subtitle.path),
+                        "ext": subtitle.extension,
+                    }
 
                     yield utils.stream_message(
-                        "update", "Song upload completed successfully."
+                        "update", "Saving existing Japanese lyrics..."
                     )
-
-                # Handle subtitles if they exist
-                if result["subtitle_info"]["exist"]:
-                    yield utils.stream_message("update", "Uploading Japanese lyrics...")
-                    if self.appwrite_service.file_exists_in_lyrics_bucket(
-                        f"{video_id}{result['subtitle_info']['ext']}"
+                    if not self.appwrite_service.file_exists_in_lyrics_bucket(
+                        f"{video_id}{subtitle.extension}"
                     ):
-                        yield utils.stream_message(
-                            "update",
-                            "Japanese lyrics already exist in storage, skipping upload.",
-                        )
-                    else:
                         subtitle_upload_success = (
                             self.appwrite_service.upload_youtube_subtitle(video_id)
                         )
-
                         if subtitle_upload_success:
                             yield utils.stream_message(
-                                "update", "Japanese lyrics uploaded successfully."
+                                "update", "Lyrics saved successfully."
                             )
-                        else:
-                            yield utils.stream_message(
-                                "warning",
-                                "Japanese lyrics upload failed, but video validation passed.",
-                            )
+                        # else:
+                        #     yield utils.stream_message(
+                        #         "warning",
+                        #         "Lyrics upload failed, but video validation passed.",
+                        #     )
+                    else:
+                        yield utils.stream_message(
+                            "update", "Lyrics found in database."
+                        )
 
-            # Always yield the final result regardless of storage status
             yield utils.stream_message("update", "Validation completed.")
             time.sleep(1)
             yield utils.stream_message("vid_info", result)
+            print("This is returned info")
+            print(result)
 
         except Exception as e:
             result["error_msg"] = (

@@ -1,5 +1,29 @@
 steps:
+  # Build the container image
   - name: "gcr.io/cloud-builders/docker"
     args: ["build", "-t", "gcr.io/synbox-react/synbox-flask-cloud-run", "."]
+
+  # Push the container image to Container Registry
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/synbox-react/synbox-flask-cloud-run"]
+
+  # Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "synbox-flask-cloud-run"
+      - "--image"
+      - "gcr.io/synbox-react/synbox-flask-cloud-run"
+      - "--region"
+      - "asia-southeast1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+
 images:
   - "gcr.io/synbox-react/synbox-flask-cloud-run"
+
+options:
+  logging: CLOUD_LOGGING_ONLY

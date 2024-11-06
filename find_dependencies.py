@@ -19,8 +19,11 @@ def find_imports(file_path):
     with open(file_path, "r", encoding="utf-8") as file:
         try:
             tree = ast.parse(file.read())
-        except:
-            print(f"Could not parse {file_path}")
+        except SyntaxError:
+            print(f"Could not parse {file_path} - syntax error in Python code")
+            return set()
+        except (UnicodeDecodeError, IOError) as e:
+            print(f"Could not read {file_path}: {e}")
             return set()
 
     imports = set()
