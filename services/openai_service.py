@@ -82,7 +82,7 @@ class OpenAIService:
 
             if not files_exist:
                 # If files don't exist in storage, download them using yt-dlp
-                yield utils.stream_message("update", "Downloading from YouTube...")
+                yield utils.stream_message("update", "Retrieving audio...")
 
                 ydl_opts = {
                     "match_filter": self.longer_than_eight_mins,
@@ -107,8 +107,10 @@ class OpenAIService:
                         [f"https://www.youtube.com/watch?v={video_id}"]
                     )
                     if error_code:
-                        result["error_msg"] = "Failed to download video"
+                        result["error_msg"] = "Failed to receive audio"
                         yield utils.stream_message("error", result["error_msg"])
+                        print("Yielded error msg from dlp")
+                        print(result["error_msg"])
                         return
 
                 # Upload both files to storage as a pair
@@ -171,7 +173,7 @@ class OpenAIService:
 
             if not result["passed"]:
                 result["error_msg"] = (
-                    "This video is not a Japanese music video, please try another video."
+                    "This video is not a Japanese song, please try another video."
                 )
                 yield utils.stream_message("error", result["error_msg"])
                 return
@@ -216,9 +218,15 @@ class OpenAIService:
             print(result)
 
         except Exception as e:
-            result["error_msg"] = (
-                f"Error processing video: {str(e)}, please try again or try another video."
-            )
+            error_str = str(e)
+            if "stopping due to --break-match-filter" in error_str:
+                result["error_msg"] = (
+                    "The song must be 1-8 minutes long, please try another song."
+                )
+            else:
+                result["error_msg"] = (
+                    f"Error processing video: {error_str}, please try again or try another song."
+                )
             yield utils.stream_message("error", result["error_msg"])
             return
 
@@ -305,7 +313,7 @@ class OpenAIService:
 
     #! Helper Function - check video length
     def longer_than_eight_mins(self, info):
-        """Download only videos shorter than 5mins or longer than 1min"""
+        """Process only videos shorter than 5mins or longer than 1min"""
         duration = info.get("duration")
         if duration and duration > 480:
             return "The video is too long"

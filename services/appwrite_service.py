@@ -102,7 +102,7 @@ class AppwriteService:
         """
         subtitle = self.find_youtube_subtitle(video_id, media_dir)
         if not subtitle.exists:
-            print(f"No YouTube subtitle found for video ID: {video_id}")
+            print(f"No YouTube lyrics found for video ID: {video_id}")
             return False
 
         file_id = f"{video_id}{subtitle.extension}"
@@ -117,10 +117,10 @@ class AppwriteService:
             self.storage.create_file(
                 bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
             )
-            print(f"Successfully uploaded YouTube subtitle: {file_id}")
+            print(f"Successfully uploaded lyrics: {file_id}")
             return True
         except Exception as e:
-            print(f"Error uploading YouTube subtitle {file_id}: {str(e)}")
+            print(f"Error uploading lyrics {file_id}: {str(e)}")
             return False
 
     def upload_srt_subtitle(

@@ -201,7 +201,6 @@ def transcription_endpoint_v2():
                     with open(processed_srt_path, "w", encoding="utf-8") as f:
                         f.write(srt_content)
 
-
                     ai_generated = True
                     yield utils.stream_message(
                         "update", "Transcription generated successfully."
@@ -273,21 +272,35 @@ def translate_annotate_endpoint():
                             yield utils.stream_message(translation_type, translation)
 
                         translations_completed = True
-                        yield utils.stream_message("update", "Translations completed.")
+                        yield utils.stream_message(
+                            "update", "Lyrics translated successfully!"
+                        )
                         time.sleep(1)
                     except ValueError as e:
                         retry_count += 1
                         if retry_count == MAX_RETRIES:
                             yield utils.stream_message(
                                 "error",
-                                "Max retries reached, unable to get translations. Please try again.",
+                                "We failed to translate the given lyrics, please try again later :(",
                             )
                             return
                         else:
-                            yield utils.stream_message(
-                                "update",
-                                f"Retrying translation (attempt {retry_count + 1})...",
-                            )
+                            match retry_count:
+                                case 1:
+                                    yield utils.stream_message(
+                                        "update",
+                                        "Retrying translations with a chill, down-to-earth AI...",
+                                    )
+                                case 2:
+                                    yield utils.stream_message(
+                                        "update",
+                                        "Retrying translations with an AI who's slightly more creative...",
+                                    )
+                                case 3:
+                                    yield utils.stream_message(
+                                        "update",
+                                        "Final attempt: Unleashing maximum AI creativity for the task!",
+                                    )
 
                 # Romaji annotation step
                 yield utils.stream_message("task_update", "romaji")
@@ -301,7 +314,7 @@ def translate_annotate_endpoint():
                         if message_type == "romaji_lyrics":
                             yield utils.stream_message(message_type, message_content)
                             yield utils.stream_message(
-                                "update", "Romaji annotation completed."
+                                "update", "Romaji annotated successfully!"
                             )
                             yield utils.stream_message("task_update", "kanji")
                         elif message_type == "error":
@@ -323,7 +336,7 @@ def translate_annotate_endpoint():
                     ) in openai_service.get_kanji_annotations(lyrics_arr, video_id):
                         yield utils.stream_message(kanji_type, kanji_annotations)
                         yield utils.stream_message(
-                            "update", "Kanji annotation completed."
+                            "update", "Kanji annotated successfully!"
                         )
                 except ValueError as e:
                     yield utils.stream_message(
@@ -331,11 +344,9 @@ def translate_annotate_endpoint():
                     )
                     return
 
-                yield utils.stream_message("task_update", "completion")
                 time.sleep(1)
-                yield utils.stream_message(
-                    "update", "All processes completed successfully."
-                )
+                yield utils.stream_message("task_update", "completion")
+                yield utils.stream_message("update", "All processes completed!")
 
             except Exception as e:
                 yield utils.stream_message("error", str(e))
