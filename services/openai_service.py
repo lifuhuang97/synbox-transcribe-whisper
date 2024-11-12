@@ -182,8 +182,8 @@ class OpenAIService:
                 return
 
             # Modified validation logic to handle missing language field
-            is_japanese = result["full_vid_info"]["language"] == "ja"
-            has_music_category = "Music" in result["full_vid_info"]["categories"]
+            is_japanese = result["vid_info_for_validation"]["language"] == "ja"
+            has_music_category = "Music" in result["vid_info_for_validation"]["categories"]
 
             result["passed"] = (
                 is_japanese and has_music_category
