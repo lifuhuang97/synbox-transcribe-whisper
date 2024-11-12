@@ -125,7 +125,7 @@ def transcription_endpoint_v2():
 
                 if subtitle_exist:
                     yield utils.stream_message(
-                        "update", "Retrieving existing subtitles..."
+                        "update", "Retrieving saved subtitles..."
                     )
 
                     subtitle_ext = subtitle_info["ext"]

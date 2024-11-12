@@ -73,7 +73,7 @@ class OpenAIService:
 
         try:
             # First, try to get files from storage
-            yield utils.stream_message("update", "Searching in Database...")
+            yield utils.stream_message("update", "Querying databases...")
             files_exist, error = self.appwrite_service.get_or_download_video_files(
                 video_id
             )
@@ -187,7 +187,7 @@ class OpenAIService:
                     }
 
                     yield utils.stream_message(
-                        "update", "Saving existing Japanese lyrics..."
+                        "update", "Saving existing lyrics..."
                     )
                     if not self.appwrite_service.file_exists_in_lyrics_bucket(
                         f"{video_id}{subtitle.extension}"

@@ -53,36 +53,46 @@ class AppwriteService:
 
     @staticmethod
     def validate_youtube_id_for_appwrite(id: str) -> bool:
-        """Check if YouTube ID is valid for Appwrite"""
-        valid_chars = re.compile(
-            r"^[a-zA-Z0-9]{1,36}$"
-        )  # Removed underscore to be more strict
-        return bool(valid_chars.match(id))
+        """
+        Check if YouTube ID is valid for Appwrite.
+        Only encode if it starts with '-' or '_' since these are the only invalid starting characters.
+        """
+        return not id.startswith(("-", "_"))
 
     @classmethod
     def encode_youtube_id_for_appwrite(cls, id: str) -> str:
         """
-        Encode YouTube ID for Appwrite storage using a more compact encoding
-        that produces valid Appwrite IDs
+        Encode YouTube ID for Appwrite storage only if necessary.
+        Only IDs starting with '-' or '_' need encoding.
         """
-        # Convert problematic characters to alphanumeric
-        safe_id = id.replace("-", "h").replace("_", "u")
-        return f"{cls.APPWRITE_ID_PREFIX}{safe_id}"
+        if id.startswith("-"):
+            return f"{cls.APPWRITE_ID_PREFIX}h{id[1:]}"
+        elif id.startswith("_"):
+            return f"{cls.APPWRITE_ID_PREFIX}u{id[1:]}"
+        return id  # Return unchanged if no encoding needed
 
     @classmethod
     def decode_appwrite_id_to_youtube(cls, appwrite_id: str) -> str:
-        """Decode Appwrite ID back to YouTube ID"""
+        """
+        Decode Appwrite ID back to YouTube ID.
+        Only decode if it starts with the prefix and has an encoding character.
+        """
         if appwrite_id.startswith(cls.APPWRITE_ID_PREFIX):
             encoded_part = appwrite_id[len(cls.APPWRITE_ID_PREFIX) :]
-            # Convert back to original characters
-            return encoded_part.replace("h", "-").replace("u", "_")
+            if encoded_part.startswith("h"):
+                return f"-{encoded_part[1:]}"
+            elif encoded_part.startswith("u"):
+                return f"_{encoded_part[1:]}"
         return appwrite_id
 
     def create_appwrite_id(self, youtube_id: str) -> str:
-        """Convert YouTube ID to valid Appwrite ID"""
-        if self.validate_youtube_id_for_appwrite(youtube_id):
-            return youtube_id
-        return self.encode_youtube_id_for_appwrite(youtube_id)
+        """
+        Convert YouTube ID to valid Appwrite ID only if necessary.
+        Most YouTube IDs are already valid Appwrite IDs.
+        """
+        if not self.validate_youtube_id_for_appwrite(youtube_id):
+            return self.encode_youtube_id_for_appwrite(youtube_id)
+        return youtube_id
 
     def get_file_id_with_extension(self, youtube_id: str, extension: str) -> str:
         """Create file ID with extension using encoded ID if necessary"""
