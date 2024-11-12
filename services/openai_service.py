@@ -154,26 +154,21 @@ class OpenAIService:
             result["full_vid_info"] = {
                 "id": video_id,
                 "thumbnail": json_vid_info.get("thumbnail", ""),
-                "views": json_vid_info.get("view_count", 0),
                 "duration": json_vid_info.get("duration", 0),
                 "likes": json_vid_info.get("like_count", 0),
                 "playable_in_embed": json_vid_info.get("playable_in_embed", True),
                 "title": json_vid_info.get("fulltitle", json_vid_info.get("title", "")),
-                "categories": json_vid_info.get("categories", []),
-                "description": json_vid_info.get("description", ""),
                 "channel_name": json_vid_info.get("channel", ""),
-                "uploader": json_vid_info.get("uploader", ""),
-                "language": json_vid_info.get("language", ""),
             }
 
             # Remove the validation of required fields since we're providing defaults
             result["vid_info_for_validation"] = {
                 "title": result["full_vid_info"]["title"],
-                "categories": result["full_vid_info"]["categories"],
-                "description": result["full_vid_info"]["description"],
+                "categories": json_vid_info.get("categories", []),
+                "description": json_vid_info.get("description", ""),
                 "channel_name": result["full_vid_info"]["channel_name"],
-                "uploader": result["full_vid_info"]["uploader"],
-                "language": result["full_vid_info"]["language"],
+                "uploader": json_vid_info.get("uploader", ""),
+                "language": json_vid_info.get("language", ""),
             }
 
             # Set audio path
