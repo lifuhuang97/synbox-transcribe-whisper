@@ -234,7 +234,7 @@ def process_subtitle_file(
 
             if most_common_count / total_non_redacted >= 0.8:
                 raise ValueError(
-                    "Error: 80% or more of the non-redacted subtitle blocks have the same content. The transcription may have errored out."
+                    "The transcription may have errored out, please try again later [high repetition]."
                 )
 
     # Generate other required outputs

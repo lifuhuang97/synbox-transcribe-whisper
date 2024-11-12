@@ -73,9 +73,7 @@ class OpenAIService:
 
         try:
             # First, try to get files from storage
-            yield utils.stream_message(
-                "update", "Checking storage for existing files..."
-            )
+            yield utils.stream_message("update", "Searching in Database...")
             files_exist, error = self.appwrite_service.get_or_download_video_files(
                 video_id
             )
@@ -110,7 +108,7 @@ class OpenAIService:
                         result["error_msg"] = "Failed to receive audio"
                         yield utils.stream_message("error", result["error_msg"])
                         print("Yielded error msg from dlp")
-                        print(result["error_msg"])
+                        print(result["error_msg"][:200])
                         return
 
                 # Upload both files to storage as a pair
@@ -214,8 +212,6 @@ class OpenAIService:
             yield utils.stream_message("update", "Validation completed.")
             time.sleep(1)
             yield utils.stream_message("vid_info", result)
-            print("This is returned info")
-            print(result)
 
         except Exception as e:
             error_str = str(e)

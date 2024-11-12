@@ -198,16 +198,76 @@ class AppwriteService:
             save_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Get file content
-            result = self.storage.get_file_download(bucket_id, file_id)
+            response = self.storage.get_file_download(bucket_id, file_id)
+
+            # Handle different response types
+            if isinstance(response, bytes):
+                # Binary file case (like audio files)
+                file_content = response
+                write_mode = "wb"
+            elif isinstance(response, dict):
+                # JSON file case
+                print(f"Handling JSON response for {file_id}")
+                import json
+
+                file_content = json.dumps(response, indent=2)
+                write_mode = "w"
+            else:
+                raise ValueError(f"Unexpected response type: {type(response)}")
 
             # Write to local file
-            with open(save_path, "wb") as f:
-                f.write(result)
+            with open(save_path, write_mode) as f:
+                if write_mode == "wb":
+                    f.write(file_content)
+                else:
+                    f.write(file_content)
 
             return True
-        except AppwriteException as e:
+        except Exception as e:
             print(f"Error downloading file {file_id}: {str(e)}")
             return False
+
+    def get_or_download_video_files(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> tuple[bool, str]:
+        """
+        Check if files exist in storage and download them, or return False if they don't exist.
+        Returns (success, error_message)
+        """
+        song_file = media_dir / f"{video_id}.m4a"
+        metadata_file = media_dir / f"{video_id}.info.json"
+
+        try:
+            # Check if both files exist in storage
+            song_exists = self.file_exists_in_songs_bucket(f"{video_id}.m4a")
+            metadata_exists = self.file_exists_in_songs_bucket(f"{video_id}.info.json")
+
+            # If either file is missing in storage, return False
+            if not (song_exists and metadata_exists):
+                return False, "Files not found in storage"
+
+            # Download both files
+            song_download = self.download_song(f"{video_id}.m4a", song_file)
+            if not song_download:
+                return False, "Failed to download audio file"
+
+            metadata_download = self.download_metadata(
+                f"{video_id}.info.json", metadata_file
+            )
+            if not metadata_download:
+                return False, "Failed to download metadata file"
+
+            # Verify files exist and are not empty
+            if not song_file.exists() or song_file.stat().st_size == 0:
+                return False, "Downloaded audio file is empty or missing"
+
+            if not metadata_file.exists() or metadata_file.stat().st_size == 0:
+                return False, "Downloaded metadata file is empty or missing"
+
+            return True, ""
+
+        except Exception as e:
+            return False, f"Error during file download: {str(e)}"
 
     def download_lyrics(self, file_id: str, save_path: Path) -> bool:
         """Download a lyrics file from the lyrics bucket"""
@@ -252,35 +312,6 @@ class AppwriteService:
         song_success = self.upload_song(video_id, media_dir)
         metadata_success = self.upload_metadata(video_id, media_dir)
         return song_success, metadata_success
-
-    def get_or_download_video_files(
-        self, video_id: str, media_dir: Path = Path("media")
-    ) -> tuple[bool, str]:
-        """
-        Check if files exist in storage and download them, or return False if they don't exist.
-        Returns (success, error_message)
-        """
-        song_file = media_dir / f"{video_id}.m4a"
-        metadata_file = media_dir / f"{video_id}.info.json"
-
-        # Check if both files exist in storage
-        song_exists = self.file_exists_in_songs_bucket(f"{video_id}.m4a")
-        metadata_exists = self.file_exists_in_songs_bucket(f"{video_id}.info.json")
-
-        # If either file is missing in storage, return False
-        if not (song_exists and metadata_exists):
-            return False, "Files not found in storage"
-
-        # Download both files
-        song_download = self.download_song(f"{video_id}.m4a", song_file)
-        metadata_download = self.download_metadata(
-            f"{video_id}.info.json", metadata_file
-        )
-
-        if not (song_download and metadata_download):
-            return False, "Failed to download files from storage"
-
-        return True, ""
 
     def verify_connection(self) -> bool:
         """Verify connection to Appwrite by attempting to list buckets"""
