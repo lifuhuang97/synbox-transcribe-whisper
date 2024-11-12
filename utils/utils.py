@@ -15,6 +15,24 @@ def concatenate_strings(string_array):
     return result
 
 
+def has_japanese_characters(text: str) -> bool:
+    """
+    Check if text contains Japanese characters (hiragana, katakana, or kanji)
+    """
+    # Unicode ranges for Japanese characters
+    japanese_ranges = [
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x4E00, 0x9FFF),  # Kanji
+        (0xFF66, 0xFF9F),  # Half-width katakana
+    ]
+
+    return any(
+        any(start <= ord(char) <= end for start, end in japanese_ranges)
+        for char in text
+    )
+
+
 def is_likely_japanese(text: str) -> bool:
     return any(
         "\u4e00" <= char <= "\u9fff"
@@ -234,19 +252,30 @@ def process_subtitle_file(
             end_time = round(parse_time(match.group(2)), 3)
             lyric_block = match.group(3).strip()
 
-            # First clean the lyrics block
+            # First clean the lyrics block using existing clean_lyrics function
             cleaned_lines, _ = clean_lyrics(lyric_block)
 
             if not cleaned_lines:
                 continue
 
-            # Join cleaned lines and process Japanese subtitles
-            cleaned_lyric = " ".join(cleaned_lines)
-            lyric = process_japanese_subtitle(cleaned_lyric)
+            # Now handle multi-line cases and annotations
+            if len(cleaned_lines) == 1:
+                # Single line case - use as is
+                lyric = cleaned_lines[0]
+            else:
+                # Multi-line case - check if first line is Japanese
+                if has_japanese_characters(cleaned_lines[0]):
+                    # If first line is Japanese, only keep that line
+                    lyric = cleaned_lines[0]
+                else:
+                    # If first line isn't Japanese, keep all cleaned lines
+                    lyric = " ".join(cleaned_lines)
 
+            # Process the Japanese subtitle
+            lyric = process_japanese_subtitle(lyric)
             duration = round(end_time - start_time, 3)
 
-            # Replace filtered content with redaction message instead of skipping
+            # Continue with your existing filtering logic
             if apply_filters and any(
                 exclude_str in lyric for exclude_str in exclude_strings
             ):

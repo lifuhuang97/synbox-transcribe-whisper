@@ -1,3 +1,5 @@
+import base64
+import re
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ class AppwriteService:
 
     SUPPORTED_SUBTITLE_FORMATS = (".ja.vtt", ".ja.srt", ".ja.ass", ".ja.ssa")
     SUPPORTED_AUDIO_FORMATS = (".m4a", ".mp4")
+    APPWRITE_ID_PREFIX = "yt_"
 
     def __init__(self):
         # Check for required environment variables
@@ -48,36 +51,136 @@ class AppwriteService:
         if not all([self.lyrics_bucket_id, self.songs_bucket_id]):
             raise ValueError("Missing required bucket IDs")
 
-    def file_exists_in_bucket(self, bucket_id: str, file_id: str) -> bool:
-        """Check if a file exists in the specified bucket"""
+    @staticmethod
+    def validate_youtube_id_for_appwrite(id: str) -> bool:
+        """Check if YouTube ID is valid for Appwrite"""
+        valid_chars = re.compile(
+            r"^[a-zA-Z0-9]{1,36}$"
+        )  # Removed underscore to be more strict
+        return bool(valid_chars.match(id))
+
+    @classmethod
+    def encode_youtube_id_for_appwrite(cls, id: str) -> str:
+        """
+        Encode YouTube ID for Appwrite storage using a more compact encoding
+        that produces valid Appwrite IDs
+        """
+        # Convert problematic characters to alphanumeric
+        safe_id = id.replace("-", "h").replace("_", "u")
+        return f"{cls.APPWRITE_ID_PREFIX}{safe_id}"
+
+    @classmethod
+    def decode_appwrite_id_to_youtube(cls, appwrite_id: str) -> str:
+        """Decode Appwrite ID back to YouTube ID"""
+        if appwrite_id.startswith(cls.APPWRITE_ID_PREFIX):
+            encoded_part = appwrite_id[len(cls.APPWRITE_ID_PREFIX) :]
+            # Convert back to original characters
+            return encoded_part.replace("h", "-").replace("u", "_")
+        return appwrite_id
+
+    def create_appwrite_id(self, youtube_id: str) -> str:
+        """Convert YouTube ID to valid Appwrite ID"""
+        if self.validate_youtube_id_for_appwrite(youtube_id):
+            return youtube_id
+        return self.encode_youtube_id_for_appwrite(youtube_id)
+
+    def get_file_id_with_extension(self, youtube_id: str, extension: str) -> str:
+        """Create file ID with extension using encoded ID if necessary"""
+        base_id = self.create_appwrite_id(youtube_id)
+        return f"{base_id}{extension}"
+
+    def file_exists_in_bucket(
+        self, bucket_id: str, youtube_id: str, extension: str = ""
+    ) -> bool:
+        """Check if a file exists in the specified bucket using encoded ID if necessary"""
+        file_id = self.get_file_id_with_extension(youtube_id, extension)
         try:
-            # Try to get the file view - if successful, file exists
             self.storage.get_file_view(bucket_id, file_id)
             return True
         except AppwriteException as e:
-            # If file doesn't exist, Appwrite will return a 404 error
             if "404" in str(e):
                 return False
-            # For other errors, log and re-raise
             print(f"Error checking file existence: {str(e)}")
             raise
 
-    def file_exists_in_lyrics_bucket(self, file_id: str) -> bool:
-        """Check if a file exists in the lyrics bucket"""
+    def file_exists_in_lyrics_bucket(
+        self, youtube_id: str, extension: str = ""
+    ) -> bool:
+        """Check if a file exists in the lyrics bucket using encoded ID if necessary"""
         try:
-            return self.file_exists_in_bucket(self.lyrics_bucket_id, file_id)
+            return self.file_exists_in_bucket(
+                self.lyrics_bucket_id, youtube_id, extension
+            )
         except AppwriteException as e:
             print(f"Error checking lyrics file: {str(e)}")
-            # Return False and log error instead of crashing
             return False
 
-    def file_exists_in_songs_bucket(self, file_id: str) -> bool:
-        """Check if a file exists in the songs bucket"""
+    def file_exists_in_songs_bucket(self, youtube_id: str, extension: str = "") -> bool:
+        """Check if a file exists in the songs bucket using encoded ID if necessary"""
         try:
-            return self.file_exists_in_bucket(self.songs_bucket_id, file_id)
+            return self.file_exists_in_bucket(
+                self.songs_bucket_id, youtube_id, extension
+            )
         except AppwriteException as e:
             print(f"Error checking song file: {str(e)}")
-            # Return False and log error instead of crashing
+            return False
+
+    def upload_youtube_subtitle(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> bool:
+        """Upload YouTube subtitle file with encoded ID if necessary"""
+        subtitle = self.find_youtube_subtitle(video_id, media_dir)
+        if not subtitle.exists:
+            print(f"No YouTube lyrics found for video ID: {video_id}")
+            return False
+
+        file_id = self.get_file_id_with_extension(video_id, subtitle.extension)
+
+        if self.file_exists_in_lyrics_bucket(video_id, subtitle.extension):
+            print(f"Subtitle already exists in storage: {file_id}")
+            return True
+
+        try:
+            payload = Payload.from_file(subtitle.path, filename=file_id)
+            self.storage.create_file(
+                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
+            )
+            print(f"Successfully uploaded lyrics: {file_id}")
+            return True
+        except Exception as e:
+            print(f"Error uploading lyrics {file_id}: {str(e)}")
+            return False
+
+    def download_file(
+        self, bucket_id: str, youtube_id: str, extension: str, save_path: Path
+    ) -> bool:
+        """Download a file using encoded ID if necessary"""
+        try:
+            file_id = self.get_file_id_with_extension(youtube_id, extension)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+
+            response = self.storage.get_file_download(bucket_id, file_id)
+
+            if isinstance(response, bytes):
+                file_content = response
+                write_mode = "wb"
+            elif isinstance(response, dict):
+                import json
+
+                file_content = json.dumps(response, indent=2)
+                write_mode = "w"
+            else:
+                raise ValueError(f"Unexpected response type: {type(response)}")
+
+            with open(save_path, write_mode) as f:
+                if write_mode == "wb":
+                    f.write(file_content)
+                else:
+                    f.write(file_content)
+
+            return True
+        except Exception as e:
+            print(f"Error downloading file: {str(e)}")
             return False
 
     def find_youtube_subtitle(
@@ -93,36 +196,6 @@ class AppwriteService:
 
         return SubtitleFile(exists=False, path=None, extension=None)
 
-    def upload_youtube_subtitle(
-        self, video_id: str, media_dir: Path = Path("media")
-    ) -> bool:
-        """
-        Upload YouTube subtitle file to lyrics bucket.
-        The file should be in format: {video_id}.ja.{vtt/srt/ass/ssa}
-        """
-        subtitle = self.find_youtube_subtitle(video_id, media_dir)
-        if not subtitle.exists:
-            print(f"No YouTube lyrics found for video ID: {video_id}")
-            return False
-
-        file_id = f"{video_id}{subtitle.extension}"
-
-        # Check if file already exists
-        if self.file_exists_in_lyrics_bucket(file_id):
-            print(f"Subtitle already exists in storage: {file_id}")
-            return True
-
-        try:
-            payload = Payload.from_file(subtitle.path, filename=file_id)
-            self.storage.create_file(
-                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
-            )
-            print(f"Successfully uploaded lyrics: {file_id}")
-            return True
-        except Exception as e:
-            print(f"Error uploading lyrics {file_id}: {str(e)}")
-            return False
-
     def upload_srt_subtitle(
         self, video_id: str, media_dir: Path = Path("media")
     ) -> bool:
@@ -135,10 +208,10 @@ class AppwriteService:
             print(f"No SRT file found for video ID: {video_id}")
             return False
 
-        file_id = f"{video_id}.srt"
+        file_id = self.get_file_id_with_extension(video_id, ".srt")
 
         # Check if file already exists
-        if self.file_exists_in_lyrics_bucket(file_id):
+        if self.file_exists_in_lyrics_bucket(video_id, ".srt"):
             print(f"SRT file already exists in storage: {file_id}")
             return True
 
@@ -170,11 +243,11 @@ class AppwriteService:
             print(f"No audio file found for video ID: {video_id}")
             return False
 
-        file_id = audio_file.name
+        file_id = self.get_file_id_with_extension(video_id, audio_file.suffix)
 
         try:
             # Check if file already exists
-            if self.file_exists_in_songs_bucket(file_id):
+            if self.file_exists_in_songs_bucket(video_id, audio_file.suffix):
                 print(f"Audio file already exists in storage: {file_id}")
                 return True
 
@@ -191,42 +264,6 @@ class AppwriteService:
             print(f"Unexpected error uploading audio file {file_id}: {str(e)}")
             return False
 
-    def download_file(self, bucket_id: str, file_id: str, save_path: Path) -> bool:
-        """Download a file from specified bucket and save it locally"""
-        try:
-            # Ensure the directory exists
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Get file content
-            response = self.storage.get_file_download(bucket_id, file_id)
-
-            # Handle different response types
-            if isinstance(response, bytes):
-                # Binary file case (like audio files)
-                file_content = response
-                write_mode = "wb"
-            elif isinstance(response, dict):
-                # JSON file case
-                print(f"Handling JSON response for {file_id}")
-                import json
-
-                file_content = json.dumps(response, indent=2)
-                write_mode = "w"
-            else:
-                raise ValueError(f"Unexpected response type: {type(response)}")
-
-            # Write to local file
-            with open(save_path, write_mode) as f:
-                if write_mode == "wb":
-                    f.write(file_content)
-                else:
-                    f.write(file_content)
-
-            return True
-        except Exception as e:
-            print(f"Error downloading file {file_id}: {str(e)}")
-            return False
-
     def get_or_download_video_files(
         self, video_id: str, media_dir: Path = Path("media")
     ) -> tuple[bool, str]:
@@ -238,21 +275,28 @@ class AppwriteService:
         metadata_file = media_dir / f"{video_id}.info.json"
 
         try:
+            # Use encoded IDs for storage operations
+            appwrite_id = self.create_appwrite_id(video_id)
+
             # Check if both files exist in storage
-            song_exists = self.file_exists_in_songs_bucket(f"{video_id}.m4a")
-            metadata_exists = self.file_exists_in_songs_bucket(f"{video_id}.info.json")
+            song_exists = self.file_exists_in_songs_bucket(appwrite_id, ".m4a")
+            metadata_exists = self.file_exists_in_songs_bucket(
+                appwrite_id, ".info.json"
+            )
 
             # If either file is missing in storage, return False
             if not (song_exists and metadata_exists):
                 return False, "Files not found in storage"
 
-            # Download both files
-            song_download = self.download_song(f"{video_id}.m4a", song_file)
+            # Download both files using encoded IDs
+            song_download = self.download_file(
+                self.songs_bucket_id, video_id, ".m4a", song_file
+            )
             if not song_download:
                 return False, "Failed to download audio file"
 
-            metadata_download = self.download_metadata(
-                f"{video_id}.info.json", metadata_file
+            metadata_download = self.download_file(
+                self.songs_bucket_id, video_id, ".info.json", metadata_file
             )
             if not metadata_download:
                 return False, "Failed to download metadata file"
@@ -269,13 +313,105 @@ class AppwriteService:
         except Exception as e:
             return False, f"Error during file download: {str(e)}"
 
+    def upload_song_with_metadata(
+        self, video_id: str, media_dir: Path = Path("media")
+    ) -> tuple[bool, bool]:
+        """Upload both song and metadata files as a pair"""
+        try:
+            # Handle song file
+            audio_file = None
+            for ext in self.SUPPORTED_AUDIO_FORMATS:
+                potential_path = media_dir / f"{video_id}{ext}"
+                if potential_path.exists():
+                    audio_file = potential_path
+                    break
+
+            if not audio_file:
+                print(f"No audio file found for video ID: {video_id}")
+                return False, False
+
+            # Get encoded IDs for storage
+            song_file_id = self.get_file_id_with_extension(video_id, audio_file.suffix)
+            metadata_file_id = self.get_file_id_with_extension(video_id, ".info.json")
+
+            print(f"Encoded song file ID: {song_file_id}")
+            print(f"Encoded metadata file ID: {metadata_file_id}")
+
+            # Upload song
+            song_success = False
+            try:
+                if not self.file_exists_in_songs_bucket(video_id, audio_file.suffix):
+                    payload = Payload.from_file(audio_file, filename=song_file_id)
+                    self.storage.create_file(
+                        bucket_id=self.songs_bucket_id,
+                        file_id=song_file_id,
+                        file=payload,
+                    )
+                    print(f"Successfully uploaded song: {song_file_id}")
+                song_success = True
+            except Exception as e:
+                print(f"Error uploading audio file {song_file_id}: {str(e)}")
+
+            # Upload metadata
+            metadata_success = False
+            try:
+                metadata_path = media_dir / f"{video_id}.info.json"
+                if metadata_path.exists() and not self.file_exists_in_songs_bucket(
+                    video_id, ".info.json"
+                ):
+                    payload = Payload.from_file(
+                        metadata_path, filename=metadata_file_id
+                    )
+                    self.storage.create_file(
+                        bucket_id=self.songs_bucket_id,
+                        file_id=metadata_file_id,
+                        file=payload,
+                    )
+                    print(f"Successfully uploaded metadata: {metadata_file_id}")
+                metadata_success = True
+            except Exception as e:
+                print(f"Error uploading metadata file {metadata_file_id}: {str(e)}")
+
+            return song_success, metadata_success
+
+        except Exception as e:
+            print(f"Unexpected error in upload_song_with_metadata: {str(e)}")
+            return False, False
+
     def download_lyrics(self, file_id: str, save_path: Path) -> bool:
-        """Download a lyrics file from the lyrics bucket"""
-        return self.download_file(self.lyrics_bucket_id, file_id, save_path)
+        """
+        Download a lyrics file from the lyrics bucket
+        Args:
+            file_id: The original file ID (e.g., "video_id.srt")
+            save_path: Where to save the downloaded file
+        """
+        # Split the file_id into base ID and extension
+        base_name, extension = os.path.splitext(file_id)
+        return self.download_file(
+            self.lyrics_bucket_id, base_name, extension, save_path
+        )
 
     def download_song(self, file_id: str, save_path: Path) -> bool:
-        """Download a song file from the songs bucket"""
-        return self.download_file(self.songs_bucket_id, file_id, save_path)
+        """
+        Download a song file from the songs bucket
+        Args:
+            file_id: The original file ID (e.g., "video_id.m4a")
+            save_path: Where to save the downloaded file
+        """
+        # Split the file_id into base ID and extension
+        base_name, extension = os.path.splitext(file_id)
+        return self.download_file(self.songs_bucket_id, base_name, extension, save_path)
+
+    def download_metadata(self, file_id: str, save_path: Path) -> bool:
+        """
+        Download a metadata file from the songs bucket
+        Args:
+            file_id: The original file ID (e.g., "video_id.info.json")
+            save_path: Where to save the downloaded file
+        """
+        # Split the file_id into base ID and extension
+        base_name, extension = os.path.splitext(file_id)
+        return self.download_file(self.songs_bucket_id, base_name, extension, save_path)
 
     def upload_metadata(self, video_id: str, media_dir: Path = Path("media")) -> bool:
         """Upload metadata JSON file to songs bucket"""
@@ -301,18 +437,6 @@ class AppwriteService:
             print(f"Error uploading metadata file {file_id}: {str(e)}")
             return False
 
-    def download_metadata(self, file_id: str, save_path: Path) -> bool:
-        """Download a metadata file from the songs bucket"""
-        return self.download_file(self.songs_bucket_id, file_id, save_path)
-
-    def upload_song_with_metadata(
-        self, video_id: str, media_dir: Path = Path("media")
-    ) -> tuple[bool, bool]:
-        """Upload both song and metadata files as a pair"""
-        song_success = self.upload_song(video_id, media_dir)
-        metadata_success = self.upload_metadata(video_id, media_dir)
-        return song_success, metadata_success
-
     def verify_connection(self) -> bool:
         """Verify connection to Appwrite by attempting to list buckets"""
         try:
@@ -322,22 +446,3 @@ class AppwriteService:
         except AppwriteException as e:
             print(f"Failed to verify Appwrite connection: {str(e)}")
             return False
-
-
-# if __name__ == "__main__":
-#     # Example video ID
-#     video_id = "aOKa-5AHCtU"
-#     appwrite_service = AppwriteService()
-
-
-#     # Example 1: Upload a song
-#     # print("\nUploading song...")
-#     # appwrite_service.upload_song_by_id(video_id)
-
-#     # Example 2: Upload lyrics with type (will look for {video_id}_standard.txt)
-#     print("\nUploading typed lyrics...")
-#     appwrite_service.upload_lyrics_by_id(video_id, "romaji")
-
-#     # Example 3: Upload default lyrics (will look for {video_id}.srt)
-#     print("\nUploading default lyrics...")
-#     appwrite_service.upload_lyrics_by_id(video_id)
