@@ -1,7 +1,7 @@
 import json
 import re
 from urllib.parse import urlparse, parse_qs
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import os
 import glob
 from config import TRANSCRIPTION_FILTER_SRT_ARRAY
@@ -104,6 +104,97 @@ def convert_time_to_seconds(time_str: str) -> float:
     return total_seconds
 
 
+def is_metadata_line(line: str) -> bool:
+    """
+    Determines if a line is likely metadata rather than lyrics.
+
+    Args:
+        line: String to check
+
+    Returns:
+        bool: True if line appears to be metadata
+    """
+    # Common metadata patterns
+    metadata_patterns = [
+        r"^[\w\s]+\s*[:：]\s*[\w\s]+$",  # Key: Value format
+        r"^[𝚅𝚘𝚌𝚊𝚕𝙼𝚞𝚜𝚒𝚌𝙸𝚕𝚕𝚞𝚜𝚝𝚛𝚊𝚝𝚘𝚛𝙳𝚒𝚛𝚎𝚌𝚝𝚘𝚛]",  # Styled text often used in headers
+        r"^\s*[\(\［【［\[].+[\)\］】］\]]\s*$",  # Bracketed text only
+        r"^[-—]+$",  # Divider lines
+        r"^\s*[Cc]horus\s*:?\s*$",  # Chorus marker
+        r"^\s*[Vv]erse\s*\d*\s*:?\s*$",  # Verse marker
+        r"^[\w\s]+\s*[/／]\s*[\w\s]+$",  # Slash-separated metadata
+        r"^\s*[©®™]\s*\d{4}\s*",  # Copyright lines
+        r"^\s*[Pp]erformed\s+[Bb]y\s*:",  # Performance credits
+        r"^\s*[Ww]ritten\s+[Bb]y\s*:",  # Writing credits
+        r"^\s*[Cc]omposed\s+[Bb]y\s*:",  # Composition credits
+    ]
+
+    # Check if line matches any metadata pattern
+    return any(re.match(pattern, line) for pattern in metadata_patterns)
+
+
+def is_valid_lyric_line(line: str) -> bool:
+    """
+    Determines if a line is likely to be valid lyrics.
+
+    Args:
+        line: String to check
+
+    Returns:
+        bool: True if line appears to be valid lyrics
+    """
+    # Strip whitespace and check if line is empty
+    if not line.strip():
+        return False
+
+    # Check if line contains any Japanese characters
+    has_japanese = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", line))
+
+    # Check if line contains English words (allowing for stylized text)
+    has_english = bool(re.search(r"[a-zA-Z]{2,}", line))
+
+    # Accept lines with Japanese characters
+    if has_japanese:
+        return True
+
+    # Accept English lines that don't match metadata patterns
+    if has_english and not is_metadata_line(line):
+        return True
+
+    return False
+
+
+def clean_lyrics(content: str) -> Tuple[List[str], List[str]]:
+    """
+    Cleans lyrics content by removing metadata and invalid lines.
+
+    Args:
+        content: Raw lyrics content
+
+    Returns:
+        Tuple[List[str], List[str]]: (cleaned_lines, removed_lines)
+    """
+    lines = content.split("\n")
+    cleaned_lines = []
+    removed_lines = []
+
+    # Process lines
+    for line in lines:
+        line = line.strip()
+
+        # Skip empty lines
+        if not line:
+            continue
+
+        # Check if line is valid lyrics
+        if is_valid_lyric_line(line):
+            cleaned_lines.append(line)
+        else:
+            removed_lines.append(line)
+
+    return cleaned_lines, removed_lines
+
+
 def process_subtitle_file(
     file_path: str,
     file_format: str,
@@ -143,8 +234,15 @@ def process_subtitle_file(
             end_time = round(parse_time(match.group(2)), 3)
             lyric_block = match.group(3).strip()
 
-            # Process Japanese subtitles
-            lyric = process_japanese_subtitle(lyric_block)
+            # First clean the lyrics block
+            cleaned_lines, _ = clean_lyrics(lyric_block)
+
+            if not cleaned_lines:
+                continue
+
+            # Join cleaned lines and process Japanese subtitles
+            cleaned_lyric = " ".join(cleaned_lines)
+            lyric = process_japanese_subtitle(cleaned_lyric)
 
             duration = round(end_time - start_time, 3)
 

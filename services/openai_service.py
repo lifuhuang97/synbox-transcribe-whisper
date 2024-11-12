@@ -122,7 +122,7 @@ class OpenAIService:
                     yield utils.stream_message("error", result["error_msg"])
                     return
 
-                yield utils.stream_message("update", "Files uploaded successfully.")
+                yield utils.stream_message("update", "Files saved successfully")
 
             # Process video info from the metadata file
             info_file_path = media_dir / f"{video_id}.info.json"

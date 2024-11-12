@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS, cross_origin
 
+from .services.lyrics_processor import LyricsProcessor
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
@@ -252,8 +253,21 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
+                # Clean lyrics once at the start
+                lyrics_processor = LyricsProcessor()
+                try:
+                    cleaned_lyrics, cleaned_timestamped = (
+                        lyrics_processor.process_lyrics_for_translation(
+                            lyrics_arr, timestamped_lyrics
+                        )
+                    )
+                except ValueError as e:
+                    yield utils.stream_message(
+                        "error", f"Error processing lyrics: {str(e)}"
+                    )
+                    return
+
                 # Translation step
-                time.sleep(1)
                 yield utils.stream_message("task_update", "translation")
                 yield utils.stream_message("update", "Generating translations...")
 
@@ -267,7 +281,7 @@ def translate_annotate_endpoint():
                             translation_type,
                             translation,
                         ) in openai_service.get_translations(
-                            timestamped_lyrics, video_id, retry_count
+                            cleaned_lyrics, video_id, retry_count
                         ):
                             yield utils.stream_message(translation_type, translation)
 
@@ -277,6 +291,7 @@ def translate_annotate_endpoint():
                         )
                         time.sleep(1)
                     except ValueError as e:
+                        print(e)
                         retry_count += 1
                         if retry_count == MAX_RETRIES:
                             yield utils.stream_message(
@@ -289,7 +304,7 @@ def translate_annotate_endpoint():
                                 case 1:
                                     yield utils.stream_message(
                                         "update",
-                                        "Retrying translations with a chill, down-to-earth AI...",
+                                        "Retrying translations with an AI who's slightly more serious...",
                                     )
                                 case 2:
                                     yield utils.stream_message(
@@ -310,7 +325,7 @@ def translate_annotate_endpoint():
                     for (
                         message_type,
                         message_content,
-                    ) in romaji_annotator.get_romaji_lyrics(lyrics_arr, video_id):
+                    ) in romaji_annotator.get_romaji_lyrics(cleaned_lyrics, video_id):
                         if message_type == "romaji_lyrics":
                             yield utils.stream_message(message_type, message_content)
                             yield utils.stream_message(
@@ -333,7 +348,7 @@ def translate_annotate_endpoint():
                     for (
                         kanji_type,
                         kanji_annotations,
-                    ) in openai_service.get_kanji_annotations(lyrics_arr, video_id):
+                    ) in openai_service.get_kanji_annotations(cleaned_lyrics, video_id):
                         yield utils.stream_message(kanji_type, kanji_annotations)
                         yield utils.stream_message(
                             "update", "Kanji annotated successfully!"
