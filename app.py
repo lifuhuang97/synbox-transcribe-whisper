@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS, cross_origin
 
-from .services.lyrics_processor import LyricsProcessor
+from services.lyrics_processor import LyricsProcessor
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
