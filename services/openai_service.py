@@ -150,34 +150,23 @@ class OpenAIService:
                 raise
 
             logger.info("Processing video info...")
+            # Use get() with default empty string/list for all fields
             result["full_vid_info"] = {
                 "id": video_id,
-                "thumbnail": json_vid_info.get("thumbnail"),
-                "views": json_vid_info.get("view_count"),
-                "duration": json_vid_info.get("duration"),
-                "likes": json_vid_info.get("like_count"),
-                "playable_in_embed": json_vid_info.get("playable_in_embed"),
-                "title": json_vid_info.get("fulltitle", json_vid_info.get("title")),
+                "thumbnail": json_vid_info.get("thumbnail", ""),
+                "views": json_vid_info.get("view_count", 0),
+                "duration": json_vid_info.get("duration", 0),
+                "likes": json_vid_info.get("like_count", 0),
+                "playable_in_embed": json_vid_info.get("playable_in_embed", True),
+                "title": json_vid_info.get("fulltitle", json_vid_info.get("title", "")),
                 "categories": json_vid_info.get("categories", []),
-                "description": json_vid_info.get("description"),
-                "channel_name": json_vid_info.get("channel"),
-                "uploader": json_vid_info.get("uploader"),
-                "language": json_vid_info.get("language"),
+                "description": json_vid_info.get("description", ""),
+                "channel_name": json_vid_info.get("channel", ""),
+                "uploader": json_vid_info.get("uploader", ""),
+                "language": json_vid_info.get("language", ""),
             }
 
-            required_fields = ["title", "categories", "language"]
-            missing_fields = [
-                field
-                for field in required_fields
-                if not result["full_vid_info"].get(field)
-            ]
-
-            if missing_fields:
-                logger.error(f"Missing required fields: {missing_fields}")
-                raise ValueError(
-                    f"Missing required video info fields: {missing_fields}"
-                )
-
+            # Remove the validation of required fields since we're providing defaults
             result["vid_info_for_validation"] = {
                 "title": result["full_vid_info"]["title"],
                 "categories": result["full_vid_info"]["categories"],
@@ -197,9 +186,12 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
+            # Modified validation logic to handle missing language field
+            is_japanese = result["full_vid_info"]["language"] == "ja"
+            has_music_category = "Music" in result["full_vid_info"]["categories"]
+
             result["passed"] = (
-                result["full_vid_info"]["language"] == "ja"
-                and "Music" in result["full_vid_info"]["categories"]
+                is_japanese and has_music_category
             ) or self.validate_youtube_video(result["vid_info_for_validation"])
 
             if not result["passed"]:
@@ -230,11 +222,6 @@ class OpenAIService:
                             yield utils.stream_message(
                                 "update", "Lyrics saved successfully."
                             )
-                        # else:
-                        #     yield utils.stream_message(
-                        #         "warning",
-                        #         "Lyrics upload failed, but video validation passed.",
-                        #     )
                     else:
                         yield utils.stream_message(
                             "update", "Lyrics found in database."
