@@ -6,6 +6,7 @@ from openai import OpenAIError
 from pathlib import Path
 import yt_dlp
 from utils import utils
+import logging
 
 from config import (
     TOOLS,
@@ -22,6 +23,9 @@ translation_setup_system_message = TRANSLATION_SETUP_SYSTEM_MESSAGE
 kanji_annotation_system_message = KANJI_ANNOTATION_SYSTEM_MESSAGE
 romaji_annotation_system_message = ROMAJI_ANNOTATION_SYSTEM_MESSAGE
 whisper_prompt = WHISPER_PROMPT
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionValidationError(Exception):
@@ -56,6 +60,7 @@ class OpenAIService:
     def validate_video(self, video_id):
         # Check if appwrite service is available when needed
         if not self.appwrite_service:
+            logger.error("Storage service not configured")
             yield utils.stream_message("error", "Storage service not configured")
             return
 
@@ -73,6 +78,7 @@ class OpenAIService:
 
         try:
             # First, try to get files from storage
+            logger.info("Querying databases...")
             yield utils.stream_message("update", "Querying databases...")
             files_exist, error = self.appwrite_service.get_or_download_video_files(
                 video_id
@@ -80,6 +86,7 @@ class OpenAIService:
 
             if not files_exist:
                 # If files don't exist in storage, download them using yt-dlp
+                logger.info("Files don't exist, downloading...")
                 yield utils.stream_message("update", "Retrieving audio...")
 
                 ydl_opts = {
@@ -126,10 +133,23 @@ class OpenAIService:
 
             # Process video info from the metadata file
             info_file_path = media_dir / f"{video_id}.info.json"
-            with open(info_file_path, "r", encoding="utf-8") as file:
-                json_vid_info = json.load(file)
+            logger.info(f"Reading info file from: {info_file_path}")
+            if not info_file_path.exists():
+                logger.error(f"Info file not found at: {info_file_path}")
+                raise FileNotFoundError(f"Info file missing for video {video_id}")
 
-            # Rest of the validation logic remains the same...
+            try:
+                with open(info_file_path, "r", encoding="utf-8") as file:
+                    json_vid_info = json.load(file)
+                    logger.info("Successfully loaded video info JSON")
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error reading info file: {str(e)}")
+                raise
+
+            logger.info("Processing video info...")
             result["full_vid_info"] = {
                 "id": video_id,
                 "thumbnail": json_vid_info.get("thumbnail"),
@@ -144,6 +164,19 @@ class OpenAIService:
                 "uploader": json_vid_info.get("uploader"),
                 "language": json_vid_info.get("language"),
             }
+
+            required_fields = ["title", "categories", "language"]
+            missing_fields = [
+                field
+                for field in required_fields
+                if not result["full_vid_info"].get(field)
+            ]
+
+            if missing_fields:
+                logger.error(f"Missing required fields: {missing_fields}")
+                raise ValueError(
+                    f"Missing required video info fields: {missing_fields}"
+                )
 
             result["vid_info_for_validation"] = {
                 "title": result["full_vid_info"]["title"],
@@ -207,12 +240,23 @@ class OpenAIService:
                             "update", "Lyrics found in database."
                         )
 
-            yield utils.stream_message("vid_info", result)
+            logger.info("Preparing to yield vid_info")
+            logger.debug(f"Result object: {result}")
+            try:
+                logger.info("Yielding vid_info message")
+                yield utils.stream_message("vid_info", result)
+                logger.info("Successfully yielded vid_info message")
+            except Exception as e:
+                logger.error(f"Error yielding vid_info message: {str(e)}")
+                raise
+
             time.sleep(1)
             yield utils.stream_message("update", "Validation completed.")
 
         except Exception as e:
             error_str = str(e)
+            logger.error(f"Error in validation process: {error_str}")
+            result["error_msg"] = f"Error processing video: {error_str}"
             if "stopping due to --break-match-filter" in error_str:
                 result["error_msg"] = (
                     "The song must be 1-8 minutes long, please try another song."

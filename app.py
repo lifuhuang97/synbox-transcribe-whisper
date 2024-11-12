@@ -5,6 +5,7 @@ import time
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS, cross_origin
+import logging
 
 from services.lyrics_processor import LyricsProcessor
 from services.romaji_annotator import RomajiAnnotator
@@ -21,6 +22,9 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # Create necessary directories
 MEDIA_DIR = "media"
 OUTPUT_TRACK_DIR = os.path.join("output", "track")
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Ensure directories exist
 if not os.path.exists(MEDIA_DIR):
@@ -59,6 +63,7 @@ def cors_test():
 @cross_origin(origin=["*"], headers=["Content-Type", "Authorization"])
 @app.route("/validate", methods=["OPTIONS", "POST"])
 def validation_endpoint():
+    logger.info("Received validation request")
     if request.method == "OPTIONS":
         response = app.make_default_options_response()
         response.headers.add("Access-Control-Allow-Origin", "*")
@@ -88,6 +93,7 @@ def validation_endpoint():
 
                 # Stream validation updates (now includes upload)
                 for update in openai_service.validate_video(video_id):
+                    logger.debug(f"Yielding update: {update[:200]}...")
                     yield update
 
             except ValueError as ve:
