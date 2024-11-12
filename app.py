@@ -122,7 +122,8 @@ def transcription_endpoint_v2():
             try:
                 temp_dir = Path("./temp")
                 temp_dir.mkdir(exist_ok=True)
-
+                yield utils.stream_message("update", "Initializing...")
+                time.sleep(3)
                 if subtitle_exist:
                     yield utils.stream_message(
                         "update", "Retrieving saved subtitles..."
@@ -159,7 +160,7 @@ def transcription_endpoint_v2():
                             ai_generated = False
                             yield utils.stream_message(
                                 "update",
-                                "Cached subtitles retrieved and processed successfully.",
+                                "Subtitles retrieved and processed successfully.",
                             )
                         else:
                             subtitle_exist = False

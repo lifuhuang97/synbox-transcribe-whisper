@@ -186,9 +186,7 @@ class OpenAIService:
                         "ext": subtitle.extension,
                     }
 
-                    yield utils.stream_message(
-                        "update", "Saving existing lyrics..."
-                    )
+                    yield utils.stream_message("update", "Saving existing lyrics...")
                     if not self.appwrite_service.file_exists_in_lyrics_bucket(
                         f"{video_id}{subtitle.extension}"
                     ):
@@ -209,9 +207,9 @@ class OpenAIService:
                             "update", "Lyrics found in database."
                         )
 
-            yield utils.stream_message("update", "Validation completed.")
-            time.sleep(1)
             yield utils.stream_message("vid_info", result)
+            time.sleep(1)
+            yield utils.stream_message("update", "Validation completed.")
 
         except Exception as e:
             error_str = str(e)
