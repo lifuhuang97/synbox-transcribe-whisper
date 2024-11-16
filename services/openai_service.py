@@ -191,15 +191,21 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
+            logger.info("[NEW!] Before SELF APPWRITE SERVICE...")
+
             # Handle subtitles if they exist
             if self.appwrite_service:
+                logger.info("[NEW!] HAS APPWRITE SERVICE - FINDING YOUTUBE SUB")
                 subtitle = self.appwrite_service.find_youtube_subtitle(video_id)
                 if subtitle.exists:
+                    logger.info("SUBTITLE FOUND!")
                     result["subtitle_info"] = {
                         "exist": True,
                         "path": str(subtitle.path),
                         "ext": subtitle.extension,
                     }
+                    logger.info("SUBTITLE INFO UPDATED")
+                    logger.info(f"{result["subtitle_info"]}")
 
                     yield utils.stream_message("update", "Saving existing lyrics...")
                     if not self.appwrite_service.file_exists_in_lyrics_bucket(
@@ -216,6 +222,9 @@ class OpenAIService:
                         yield utils.stream_message(
                             "update", "Lyrics found in database."
                         )
+                logger.info("---------------")
+                logger.info("SUBTITLE INFO MIGHT NOT BE UPDATED")
+                logger.info(f"{result["subtitle_info"]}")
 
             logger.info("Preparing to yield vid_info")
             logger.debug(f"Result object: {result}")
