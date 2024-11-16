@@ -444,7 +444,7 @@ class AppwriteService:
                     if file_name:
                         # Extract the extension from the file name
                         _, ext = os.path.splitext(file_name)
-                        subtitle_path = media_dir / f"{video_id}{ext}"
+                        subtitle_path = media_dir / f"{file_name}"
 
                         subtitle_download = self.download_lyrics_file(
                             self.lyrics_bucket_id, file_name, subtitle_path
