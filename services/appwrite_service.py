@@ -417,7 +417,7 @@ class AppwriteService:
 
                 # Download any found subtitle files
                 for file in subtitle_files.get("files", []):
-                    file_name = file.get("name")
+                    file_name = file.get("$id")
                     if file_name:
                         # Extract the extension from the file name
                         _, ext = os.path.splitext(file_name)
