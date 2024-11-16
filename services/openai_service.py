@@ -214,11 +214,11 @@ class OpenAIService:
                 yield utils.stream_message("error", result["error_msg"])
                 return
 
-            logger.info("[NEW!] Before SELF APPWRITE SERVICE...")
+            logger.info("Before SELF APPWRITE SERVICE...")
 
             # Handle subtitles if they exist
             if self.appwrite_service:
-                logger.info("[NEW!] HAS APPWRITE SERVICE - FINDING YOUTUBE SUB")
+                logger.info("HAS APPWRITE SERVICE - FINDING YOUTUBE SUB")
                 subtitle = self.appwrite_service.find_youtube_subtitle(video_id)
                 if subtitle.exists:
                     logger.info("SUBTITLE FOUND!")

@@ -413,6 +413,7 @@ class AppwriteService:
                 subtitle_files = self.storage.list_files(
                     bucket_id=self.lyrics_bucket_id, queries=query
                 )
+                logger.debug(f"[NEW] Subtitle Files List: {subtitle_files}")
 
                 # Download any found subtitle files
                 for file in subtitle_files.get("files", []):
@@ -425,6 +426,8 @@ class AppwriteService:
                         subtitle_download = self.download_file(
                             self.lyrics_bucket_id, video_id, ext, subtitle_path
                         )
+
+                        logger.debug(f"Subtitle download: {subtitle_download}")
 
                         if not subtitle_download:
                             logger.warning(
