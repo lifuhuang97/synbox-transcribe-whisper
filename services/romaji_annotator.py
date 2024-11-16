@@ -281,11 +281,11 @@ class RomajiAnnotator:
                 return (
                     romaji_line["romaji"][0]
                     if romaji_line.get("romaji")
-                    else "[Failed]"
+                    else "-"
                 )
 
-            return "[Failed]"
+            return "-"
 
         except Exception as e:
             print(f"Error in single line conversion: {str(e)}")
-            return "[Failed]"
+            return "-"
