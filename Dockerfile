@@ -24,6 +24,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Create necessary directories
 RUN mkdir -p media output/track
 
+RUN mkdir -p /app/media && chmod 777 /app/media
+
 # Create gunicorn config file - optimized for cold starts
 RUN echo 'import multiprocessing\n\
 bind = "0.0.0.0:8080"\n\

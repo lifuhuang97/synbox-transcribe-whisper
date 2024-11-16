@@ -35,11 +35,29 @@ class TranscriptionValidationError(Exception):
 
 
 class OpenAIService:
+    # def __init__(self, api_key, organization, project, appwrite_service=None):
+    #     if not all([api_key, organization, project]):
+    #         raise ValueError("Missing required OpenAI credentials")
+
+    #     self.PROJECT_ROOT = Path(__file__).parent.parent
+    #     self.client = OpenAI(
+    #         api_key=api_key,
+    #         organization=organization,
+    #         project=project,
+    #     )
+    #     self.MODEL = "gpt-4o"
+    #     self.appwrite_service = appwrite_service
+    #     Path("media").mkdir(exist_ok=True)
     def __init__(self, api_key, organization, project, appwrite_service=None):
         if not all([api_key, organization, project]):
             raise ValueError("Missing required OpenAI credentials")
 
+        # Get the directory where the application code is running
         self.PROJECT_ROOT = Path(__file__).parent.parent
+        # Create media directory relative to the application root
+        self.media_dir = self.PROJECT_ROOT / "media"
+        self.media_dir.mkdir(exist_ok=True, parents=True)
+
         self.client = OpenAI(
             api_key=api_key,
             organization=organization,
@@ -47,9 +65,12 @@ class OpenAIService:
         )
         self.MODEL = "gpt-4o"
         self.appwrite_service = appwrite_service
-        Path("media").mkdir(exist_ok=True)
 
     def validate_video(self, video_id):
+        logger.debug(f"Project root: {self.PROJECT_ROOT}")
+        logger.debug(f"Media directory: {self.media_dir}")
+        logger.debug(f"Media dir exists: {self.media_dir.exists()}")
+        logger.debug(f"Media dir contents: {list(self.media_dir.glob('*'))}")
         # Check if appwrite service is available when needed
         if not self.appwrite_service:
             logger.error("Storage service not configured")
@@ -95,8 +116,10 @@ class OpenAIService:
                             "preferredcodec": "m4a",
                         }
                     ],
-                    "outtmpl": "./media/%(id)s.%(ext)s",
-                    "subtitlesoutopt": "./media/%(id)s.%(ext)s",
+                    # "outtmpl": "./media/%(id)s.%(ext)s",
+                    # "subtitlesoutopt": "./media/%(id)s.%(ext)s",
+                    "outtmpl": str(self.media_dir / "%(id)s.%(ext)s"),
+                    "subtitlesoutopt": str(self.media_dir / "%(id)s.%(ext)s"),
                 }
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:

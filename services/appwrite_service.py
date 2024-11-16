@@ -6,6 +6,14 @@ from appwrite.client import Client
 from appwrite.services.storage import Storage
 from appwrite.payload import Payload
 from appwrite.exception import AppwriteException
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("app.log")],
+)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -191,17 +199,41 @@ class AppwriteService:
             print(f"Error downloading file: {str(e)}")
             return False
 
+    # def find_youtube_subtitle(
+    #     self, video_id: str, media_dir: Path = Path("media")
+    # ) -> SubtitleFile:
+    #     """
+    #     Find YouTube subtitle file in various formats (.ja.vtt, .ja.srt, .ja.ass, .ja.ssa)
+    #     """
+    #     for ext in self.SUPPORTED_SUBTITLE_FORMATS:
+    #         subtitle_path = media_dir / f"{video_id}{ext}"
+    #         if subtitle_path.exists():
+    #             return SubtitleFile(exists=True, path=subtitle_path, extension=ext)
+
+    #     return SubtitleFile(exists=False, path=None, extension=None)
+
     def find_youtube_subtitle(
-        self, video_id: str, media_dir: Path = Path("media")
+        self, video_id: str, media_dir: Optional[Path] = None
     ) -> SubtitleFile:
         """
         Find YouTube subtitle file in various formats (.ja.vtt, .ja.srt, .ja.ass, .ja.ssa)
         """
+        # Use the class media directory if none provided
+        if media_dir is None:
+            media_dir = self.media_dir
+
+        logger.debug(f"Looking for subtitles in: {media_dir}")
+        logger.debug(f"Directory exists: {media_dir.exists()}")
+        logger.debug(f"Directory contents: {list(media_dir.glob('*'))}")
+
         for ext in self.SUPPORTED_SUBTITLE_FORMATS:
             subtitle_path = media_dir / f"{video_id}{ext}"
+            logger.debug(f"Checking path: {subtitle_path}")
             if subtitle_path.exists():
+                logger.debug(f"Found subtitle at: {subtitle_path}")
                 return SubtitleFile(exists=True, path=subtitle_path, extension=ext)
 
+        logger.debug("No subtitles found")
         return SubtitleFile(exists=False, path=None, extension=None)
 
     def upload_srt_subtitle(
