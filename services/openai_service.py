@@ -97,6 +97,9 @@ class OpenAIService:
                 video_id
             )
 
+            logger.debug(f"[NEW] Subtitle Files Exist ? -- {files_exist}")
+            logger.debug(f"[NEW] Subtitle Files Error ? -- {error}")
+
             if not files_exist:
                 # If files don't exist in storage, download them using yt-dlp
                 logger.info("Files don't exist, downloading...")
