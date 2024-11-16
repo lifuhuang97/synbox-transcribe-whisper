@@ -1,5 +1,3 @@
-import base64
-import re
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
@@ -447,12 +445,12 @@ class AppwriteService:
             print(f"Error uploading metadata file {file_id}: {str(e)}")
             return False
 
-    def verify_connection(self) -> bool:
-        """Verify connection to Appwrite by attempting to list buckets"""
-        try:
-            # Try to list buckets or get a bucket to verify connection
-            self.storage.list_buckets()
-            return True
-        except AppwriteException as e:
-            print(f"Failed to verify Appwrite connection: {str(e)}")
-            return False
+    # def verify_connection(self) -> bool:
+    #     """Verify connection to Appwrite by attempting to list buckets"""
+    #     try:
+    #         # Try to list buckets or get a bucket to verify connection
+    #         self.storage.list_buckets()
+    #         return True
+    #     except AppwriteException as e:
+    #         print(f"Failed to verify Appwrite connection: {str(e)}")
+    #         return False

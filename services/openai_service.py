@@ -46,15 +46,7 @@ class OpenAIService:
             project=project,
         )
         self.MODEL = "gpt-4o"
-
-        # Verify Appwrite service is properly initialized if provided
-        if appwrite_service:
-            if (
-                not appwrite_service.verify_connection()
-            ):  # Add this method to AppwriteService
-                raise ValueError("Appwrite service connection failed")
         self.appwrite_service = appwrite_service
-
         Path("media").mkdir(exist_ok=True)
 
     def validate_video(self, video_id):
@@ -151,6 +143,7 @@ class OpenAIService:
 
             logger.info("Processing video info...")
             # Use get() with default empty string/list for all fields
+
             result["full_vid_info"] = {
                 "id": video_id,
                 "thumbnail": json_vid_info.get("thumbnail", ""),
@@ -183,7 +176,9 @@ class OpenAIService:
 
             # Modified validation logic to handle missing language field
             is_japanese = result["vid_info_for_validation"]["language"] == "ja"
-            has_music_category = "Music" in result["vid_info_for_validation"]["categories"]
+            has_music_category = (
+                "Music" in result["vid_info_for_validation"]["categories"]
+            )
 
             result["passed"] = (
                 is_japanese and has_music_category
