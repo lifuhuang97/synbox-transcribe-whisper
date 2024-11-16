@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import os
@@ -5,6 +6,7 @@ import time
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response, stream_with_context
 from flask_cors import CORS, cross_origin
+from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 
 from services.lyrics_processor import LyricsProcessor
@@ -17,13 +19,21 @@ load_dotenv(override=True)
 sys.path.append("../")
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+app.config.update(
+    PROPAGATE_EXCEPTIONS=True, PREFERRED_URL_SCHEME="https", STREAMING_TIMEOUT=300
+)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Create necessary directories
 MEDIA_DIR = "media"
 OUTPUT_TRACK_DIR = os.path.join("output", "track")
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("app.log")],
+)
 logger = logging.getLogger(__name__)
 
 # Ensure directories exist
@@ -93,6 +103,20 @@ def validation_endpoint():
 
                 # Stream validation updates (now includes upload)
                 for update in openai_service.validate_video(video_id):
+                    if isinstance(update, str) and "vid_info" in update:
+                        try:
+                            vid_info = json.loads(update)
+                            if "data" in vid_info:
+                                subtitle_info = vid_info["data"].get("subtitle_info", {})
+                                logger.info("Subtitle Info Details:")
+                                logger.info(f"Exists: {subtitle_info.get('exist', False)}")
+                                logger.info(f"Path: {subtitle_info.get('path', 'N/A')}")
+                                logger.info(f"Extension: {subtitle_info.get('ext', 'N/A')}")
+                                logger.info("-" * 50)
+                        except json.JSONDecodeError:
+                            logger.error("Failed to parse vid_info JSON")
+                        except Exception as e:
+                            logger.error(f"Error processing vid_info: {str(e)}")
                     logger.debug(f"Yielding update: {update[:200]}...")
                     yield update
 
@@ -104,7 +128,15 @@ def validation_endpoint():
                     "error", f"An unexpected error occurred: {str(e)}"
                 )
 
-    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+    response = Response(
+        stream_with_context(generate()), mimetype="application/x-ndjson"
+    )
+    # Add crucial headers for streaming
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["Transfer-Encoding"] = "chunked"
+    return response
 
 
 #! Step 2
@@ -128,7 +160,7 @@ def transcription_endpoint_v2():
             try:
                 temp_dir = Path("./temp")
                 temp_dir.mkdir(exist_ok=True)
-                yield utils.stream_message("update", "Initializing...")
+                yield utils.stream_message("update", "Initializing transcription...")
                 time.sleep(3)
                 if subtitle_exist:
                     yield utils.stream_message(
@@ -234,7 +266,15 @@ def transcription_endpoint_v2():
                 yield utils.stream_message("error", error_message)
                 return
 
-    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+    response = Response(
+        stream_with_context(generate()), mimetype="application/x-ndjson"
+    )
+    # Add crucial headers for streaming
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["Transfer-Encoding"] = "chunked"
+    return response
 
 
 #! Step 3
@@ -303,7 +343,7 @@ def translate_annotate_endpoint():
                         if retry_count == MAX_RETRIES:
                             yield utils.stream_message(
                                 "error",
-                                "We failed to translate the given lyrics, please try again later :(",
+                                "We failed to translate the given lyrics, please try again :(",
                             )
                             return
                         else:
@@ -311,12 +351,12 @@ def translate_annotate_endpoint():
                                 case 1:
                                     yield utils.stream_message(
                                         "update",
-                                        "Retrying translations with an AI who's slightly more serious...",
+                                        "Retrying translations with an AI who's more creative...",
                                     )
                                 case 2:
                                     yield utils.stream_message(
                                         "update",
-                                        "Retrying translations with an AI who's slightly more creative...",
+                                        "Retrying translations with an AI who's more serious...",
                                     )
                                 case 3:
                                     yield utils.stream_message(
@@ -345,7 +385,10 @@ def translate_annotate_endpoint():
                                 f"Romaji generation failed: {message_content}",
                             )
                 except ValueError:
-                    yield utils.stream_message("error", "Romaji generation failed")
+                    yield utils.stream_message(
+                        "error",
+                        "We failed to generate romaji for the given lyrics, please try again :(",
+                    )
 
                 # Kanji annotation step
                 yield utils.stream_message("task_update", "kanji")
@@ -373,7 +416,15 @@ def translate_annotate_endpoint():
             except Exception as e:
                 yield utils.stream_message("error", str(e))
 
-    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
+    response = Response(
+        stream_with_context(generate()), mimetype="application/x-ndjson"
+    )
+    # Add crucial headers for streaming
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["Transfer-Encoding"] = "chunked"
+    return response
 
 
 if __name__ == "__main__":
