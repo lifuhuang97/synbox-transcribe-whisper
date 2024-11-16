@@ -6,6 +6,7 @@ from appwrite.client import Client
 from appwrite.services.storage import Storage
 from appwrite.payload import Payload
 from appwrite.exception import AppwriteException
+from appwrite.query import Query
 import logging
 
 logging.basicConfig(
@@ -310,11 +311,61 @@ class AppwriteService:
             print(f"Unexpected error uploading audio file {file_id}: {str(e)}")
             return False
 
+    # def get_or_download_video_files(
+    #     self, video_id: str, media_dir: Path = Path("media")
+    # ) -> tuple[bool, str]:
+    #     """
+    #     Check if files exist in storage and download them, or return False if they don't exist.
+    #     Returns (success, error_message)
+    #     """
+    #     song_file = media_dir / f"{video_id}.m4a"
+    #     metadata_file = media_dir / f"{video_id}.info.json"
+
+    #     try:
+    #         # Use encoded IDs for storage operations
+    #         appwrite_id = self.create_appwrite_id(video_id)
+
+    #         # Check if both files exist in storage
+    #         song_exists = self.file_exists_in_songs_bucket(appwrite_id, ".m4a")
+    #         metadata_exists = self.file_exists_in_songs_bucket(
+    #             appwrite_id, ".info.json"
+    #         )
+
+    #         # If either file is missing in storage, return False
+    #         if not (song_exists and metadata_exists):
+    #             return False, "Files not found in storage"
+
+    #         # Download both files using encoded IDs
+    #         song_download = self.download_file(
+    #             self.songs_bucket_id, video_id, ".m4a", song_file
+    #         )
+    #         if not song_download:
+    #             return False, "Failed to download audio file"
+
+    #         metadata_download = self.download_file(
+    #             self.songs_bucket_id, video_id, ".info.json", metadata_file
+    #         )
+    #         if not metadata_download:
+    #             return False, "Failed to download metadata file"
+
+    #         # Verify files exist and are not empty
+    #         if not song_file.exists() or song_file.stat().st_size == 0:
+    #             return False, "Downloaded audio file is empty or missing"
+
+    #         if not metadata_file.exists() or metadata_file.stat().st_size == 0:
+    #             return False, "Downloaded metadata file is empty or missing"
+
+    #         return True, ""
+
+    #     except Exception as e:
+    #         return False, f"Error during file download: {str(e)}"
+
     def get_or_download_video_files(
         self, video_id: str, media_dir: Path = Path("media")
     ) -> tuple[bool, str]:
         """
         Check if files exist in storage and download them, or return False if they don't exist.
+        Also checks and downloads any available subtitle files.
         Returns (success, error_message)
         """
         song_file = media_dir / f"{video_id}.m4a"
@@ -347,7 +398,49 @@ class AppwriteService:
             if not metadata_download:
                 return False, "Failed to download metadata file"
 
-            # Verify files exist and are not empty
+            # Query for subtitle files
+            try:
+                # Create individual contains queries for each format
+                subtitle_queries = [
+                    Query.contains("name", [f"{appwrite_id}{ext}"])
+                    for ext in self.SUPPORTED_SUBTITLE_FORMATS
+                ]
+
+                # Combine queries with OR
+                query = [Query.or_queries(subtitle_queries)]
+
+                # List files with the combined query
+                subtitle_files = self.storage.list_files(
+                    bucket_id=self.lyrics_bucket_id, queries=query
+                )
+
+                # Download any found subtitle files
+                for file in subtitle_files.get("files", []):
+                    file_name = file.get("name")
+                    if file_name:
+                        # Extract the extension from the file name
+                        _, ext = os.path.splitext(file_name)
+                        subtitle_path = media_dir / f"{video_id}{ext}"
+
+                        subtitle_download = self.download_file(
+                            self.lyrics_bucket_id, video_id, ext, subtitle_path
+                        )
+
+                        if not subtitle_download:
+                            logger.warning(
+                                f"Failed to download subtitle file: {file_name}"
+                            )
+                        else:
+                            logger.info(
+                                f"Successfully downloaded subtitle file: {file_name}"
+                            )
+
+            except Exception as e:
+                logger.error(f"Error querying/downloading subtitle files: {str(e)}")
+                # Don't fail the whole operation if subtitle download fails
+                pass
+
+            # Verify main files exist and are not empty
             if not song_file.exists() or song_file.stat().st_size == 0:
                 return False, "Downloaded audio file is empty or missing"
 
