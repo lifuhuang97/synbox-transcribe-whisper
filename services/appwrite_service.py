@@ -174,6 +174,27 @@ class AppwriteService:
             print(f"Error uploading lyrics {file_id}: {str(e)}")
             return False
 
+    def download_lyrics_file(
+        self, bucket_id: str, file_name: str, save_path: Path
+    ) -> bool:
+        """Download a lyrics file from storage and save it to the specified path"""
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Get file from storage
+            response = self.storage.get_file_download(bucket_id, file_name)
+
+            # Write bytes response to file
+            with open(save_path, "wb") as f:
+                f.write(response)
+
+            logger.debug(f"Successfully downloaded lyrics file to: {save_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error downloading lyrics file: {str(e)}")
+            return False
+
     def download_file(
         self, bucket_id: str, youtube_id: str, extension: str, save_path: Path
     ) -> bool:
@@ -425,8 +446,8 @@ class AppwriteService:
                         _, ext = os.path.splitext(file_name)
                         subtitle_path = media_dir / f"{video_id}{ext}"
 
-                        subtitle_download = self.download_file(
-                            self.lyrics_bucket_id, video_id, ext, subtitle_path
+                        subtitle_download = self.download_lyrics_file(
+                            self.lyrics_bucket_id, file_name, subtitle_path
                         )
 
                         logger.debug(f"Subtitle download: {subtitle_download}")
