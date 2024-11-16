@@ -205,7 +205,7 @@ class OpenAIService:
                         "ext": subtitle.extension,
                     }
                     logger.info("SUBTITLE INFO UPDATED")
-                    logger.info(f"{result["subtitle_info"]}")
+                    logger.info(str(result["subtitle_info"]))
 
                     yield utils.stream_message("update", "Saving existing lyrics...")
                     if not self.appwrite_service.file_exists_in_lyrics_bucket(
@@ -224,7 +224,7 @@ class OpenAIService:
                         )
                 logger.info("---------------")
                 logger.info("SUBTITLE INFO MIGHT NOT BE UPDATED")
-                logger.info(f"{result["subtitle_info"]}")
+                logger.info(str(result["subtitle_info"]))
 
             logger.info("Preparing to yield vid_info")
             logger.debug(f"Result object: {result}")
