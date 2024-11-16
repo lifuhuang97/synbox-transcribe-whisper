@@ -54,6 +54,12 @@ class AppwriteService:
         self.lyrics_bucket_id = os.getenv("APPWRITE_STORAGE_LYRICS_ID")
         self.songs_bucket_id = os.getenv("APPWRITE_STORAGE_SONGS_ID")
 
+        # Get the directory where the application code is running
+        self.PROJECT_ROOT = Path(__file__).parent.parent
+        # Create media directory relative to the application root
+        self.media_dir = self.PROJECT_ROOT / "media"
+        self.media_dir.mkdir(exist_ok=True, parents=True)
+
         if not all([self.lyrics_bucket_id, self.songs_bucket_id]):
             raise ValueError("Missing required bucket IDs")
 
