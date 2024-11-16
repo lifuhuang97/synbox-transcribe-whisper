@@ -1,8 +1,0 @@
-runtime: python39
-entrypoint: gunicorn -b :$PORT main:app
-
-env_variables:
-  OPENAI_KEY: ""
-
-includes:
-  - env_secrets.yaml

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
 # C extensions
 *.so
 # Distribution / packaging
@@ -30,6 +31,7 @@ share/python-wheels/
 MANIFEST
 output/
 .DS_Store
+services/.DS_Store
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
