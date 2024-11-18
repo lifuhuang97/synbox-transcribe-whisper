@@ -9,6 +9,7 @@ from flask_cors import CORS, cross_origin
 from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 
+from services.lyrics_processor import LyricsProcessor
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
@@ -289,7 +290,9 @@ def translate_annotate_endpoint():
 
     def generate():
         if request.method == "POST":
-            yield utils.stream_message("update", "Starting translation and annotation process...")
+            yield utils.stream_message(
+                "update", "Starting translation and annotation process..."
+            )
 
             try:
                 data = request.json
@@ -297,21 +300,21 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                # Clean and synchronize lyrics
+                # Clean lyrics once at the start
+                lyrics_processor = LyricsProcessor()
                 try:
-                    cleaned_lyrics, cleaned_timestamped = utils.clean_and_sync_lyrics(
-                        lyrics_arr, timestamped_lyrics
+                    cleaned_lyrics, cleaned_timestamped = (
+                        lyrics_processor.process_lyrics_for_translation(
+                            lyrics_arr, timestamped_lyrics
+                        )
                     )
-                    
-                    # Prepare and send the updated full lyrics data
-                    full_lyrics = utils.prepare_full_lyrics(cleaned_timestamped)
-                    yield utils.stream_message("full_lyrics", full_lyrics)
-                    
-                except Exception as e:
-                    yield utils.stream_message("error", f"Error processing lyrics: {str(e)}")
+                except ValueError as e:
+                    yield utils.stream_message(
+                        "error", f"Error processing lyrics: {str(e)}"
+                    )
                     return
 
-                # Continue with translations using cleaned_lyrics
+                # Translation step
                 yield utils.stream_message("task_update", "translation")
                 yield utils.stream_message("update", "Generating translations...")
 

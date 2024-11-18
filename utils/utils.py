@@ -234,26 +234,10 @@ def process_subtitle_file(
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
 
-    def is_valid_lyric_line(line: str) -> bool:
-        # Remove ruby tags and their content for checking
-        cleaned = re.sub(r"<ruby>.*?</ruby>", "", line).strip()
-        cleaned = re.sub(
-            r"<[^>]+>", "", cleaned
-        ).strip()  # Remove any remaining HTML tags
-
-        if not cleaned:
-            return False
-
-        # Consider it invalid if it's in the exclude strings
-        if any(exclude_str in cleaned for exclude_str in exclude_strings):
-            return False
-
-        # Check if line contains actual text content
-        return bool(re.sub(r"[\s\[\]（）()-]", "", cleaned))
-
     def process_subtitle(
         content: str,
         subtitle_format: str,
+        exclude_strings: List[str],
         apply_filters: bool = True,
     ) -> List[Dict[str, Any]]:
         timestamped_lyrics = []
@@ -272,17 +256,32 @@ def process_subtitle_file(
             end_time = parse_time(match.group(2))
             text = match.group(3).strip()
 
-            if not is_valid_lyric_line(text):
+            # Clean and validate the text
+            cleaned_lines, _ = clean_lyrics(text)
+            if not cleaned_lines:
                 continue
 
+            lyric = (
+                cleaned_lines[0]
+                if len(cleaned_lines) == 1
+                else (
+                    cleaned_lines[0]
+                    if has_japanese_characters(cleaned_lines[0])
+                    else " ".join(cleaned_lines)
+                )
+            )
+
+            # Apply filters if needed
             if apply_filters:
+                if any(exclude_str in lyric for exclude_str in exclude_strings):
+                    continue
                 duration = end_time - start_time
-                if duration >= max_duration and len(text) > 20:
+                if duration >= max_duration and len(lyric) > 20:
                     continue
 
             # Handle long lines that need splitting
-            if len(text) > max_lyric_length and " " in text:
-                words = text.split()
+            if len(lyric) > max_lyric_length and " " in lyric:
+                words = lyric.split()
                 current_line = ""
                 lines = []
 
@@ -307,23 +306,19 @@ def process_subtitle_file(
                     line_end = line_start + time_per_line
                     timestamped_lyrics.append(
                         {
-                            "id": str(len(timestamped_lyrics) + 1),
-                            "startTime": format_time(line_start).replace(".", ","),
-                            "startSeconds": round(line_start, 3),
-                            "endTime": format_time(line_end).replace(".", ","),
-                            "endSeconds": round(line_end, 3),
-                            "text": line,
+                            "start_time": round(line_start, 3),
+                            "end_time": round(line_end, 3),
+                            "duration": round(time_per_line, 3),
+                            "lyric": line,
                         }
                     )
             else:
                 timestamped_lyrics.append(
                     {
-                        "id": str(len(timestamped_lyrics) + 1),
-                        "startTime": match.group(1),
-                        "startSeconds": round(start_time, 3),
-                        "endTime": match.group(2),
-                        "endSeconds": round(end_time, 3),
-                        "text": text,
+                        "start_time": round(start_time, 3),
+                        "end_time": round(end_time, 3),
+                        "duration": round(end_time - start_time, 3),
+                        "lyric": lyric,
                     }
                 )
 
@@ -333,12 +328,17 @@ def process_subtitle_file(
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
-    timestamped_lyrics = process_subtitle(content, file_format, apply_filters=True)
-    lyrics = [item["text"] for item in timestamped_lyrics]
+    timestamped_lyrics = process_subtitle(
+        content, file_format, exclude_strings, apply_filters=True
+    )
 
+    # Generate final outputs
+    lyrics = [item["lyric"] for item in timestamped_lyrics]
     filtered_srt = "\n\n".join(
-        f"{i + 1}\n{item['startTime']} --> {item['endTime']}\n{item['text']}"
-        for i, item in enumerate(timestamped_lyrics)
+        [
+            f"{i + 1}\n{format_time(item['start_time'])} --> {format_time(item['end_time'])}\n{item['lyric']}"
+            for i, item in enumerate(timestamped_lyrics)
+        ]
     )
 
     return {
@@ -346,47 +346,6 @@ def process_subtitle_file(
         "timestamped_lyrics": timestamped_lyrics,
         "filtered_srt": filtered_srt,
     }
-
-
-def clean_and_sync_lyrics(
-    lyrics_arr: List[str], timestamped_lyrics: List[Dict[str, Any]]
-) -> Tuple[List[str], List[Dict[str, Any]]]:
-    """
-    Clean lyrics while maintaining proper timestamp synchronization.
-    """
-    cleaned = []
-    cleaned_timestamps = []
-
-    for lyric, timestamp_entry in zip(lyrics_arr, timestamped_lyrics):
-        lyric = lyric.strip()
-
-        # Skip empty lines or pure music markers
-        if not lyric or not bool(re.sub(r"[\s\[\]（）()-]", "", lyric)):
-            continue
-
-        # Keep the original timestamp data for this line
-        cleaned.append(lyric)
-        cleaned_timestamps.append(
-            {
-                "id": str(len(cleaned)),
-                "startTime": timestamp_entry["startTime"],
-                "startSeconds": timestamp_entry["startSeconds"],
-                "endTime": timestamp_entry["endTime"],
-                "endSeconds": timestamp_entry["endSeconds"],
-                "text": lyric,
-            }
-        )
-
-    return cleaned, cleaned_timestamps
-
-
-def prepare_full_lyrics(timestamped_lyrics: List[Dict[str, Any]]) -> str:
-    """Prepare the full lyrics JSON for frontend consumption."""
-    # Reset IDs while keeping original timestamps
-    for i, entry in enumerate(timestamped_lyrics, 1):
-        entry["id"] = str(i)
-
-    return json.dumps(timestamped_lyrics, ensure_ascii=False)
 
 
 def stream_message(type: str, data: str):
