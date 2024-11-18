@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Tuple
 import os
 import glob
 from config import TRANSCRIPTION_FILTER_SRT_ARRAY
+import unicodedata
 
 
 # ? General Utils
@@ -13,24 +14,6 @@ def concatenate_strings(string_array):
     string_array = [str(item) for item in string_array]  # Convert all items to strings
     result = "\n".join(string_array)
     return result
-
-
-def has_japanese_characters(text: str) -> bool:
-    """
-    Check if text contains Japanese characters (hiragana, katakana, or kanji)
-    """
-    # Unicode ranges for Japanese characters
-    japanese_ranges = [
-        (0x3040, 0x309F),  # Hiragana
-        (0x30A0, 0x30FF),  # Katakana
-        (0x4E00, 0x9FFF),  # Kanji
-        (0xFF66, 0xFF9F),  # Half-width katakana
-    ]
-
-    return any(
-        any(start <= ord(char) <= end for start, end in japanese_ranges)
-        for char in text
-    )
 
 
 def is_likely_japanese(text: str) -> bool:
@@ -58,39 +41,6 @@ def process_japanese_subtitle(lyric_block: str) -> str:
     return lyric_block
 
 
-# ? Returns videoID no matter if it's a youtube URL or just the videoID
-def extract_video_id(youtube_url):
-
-    youtube_url_pattern = r"^https?:\/\/(?:www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([0-9A-Za-z_-]{11})(&.*)?$"
-    # Check if input is a valid YouTube URL
-    if not re.match(youtube_url_pattern, youtube_url):
-        return youtube_url
-
-    # Regular expression for finding a YouTube video ID in various URL formats
-    video_id_pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11})|youtu\.be\/([0-9A-Za-z_-]{11})"
-    match = re.search(video_id_pattern, youtube_url)
-    if match:
-        # Check which group has the match
-        video_id = match.group(1) if match.group(1) else match.group(2)
-
-        # Further validation if the video ID is part of a query string
-        parsed_url = urlparse(youtube_url)
-        if parsed_url.query:
-            query_params = parse_qs(parsed_url.query)
-            # This check ensures that 'v' parameter is present and the video_id is from the 'v' parameter
-            if "v" in query_params and video_id in query_params["v"]:
-                return video_id
-
-        # If the video ID didn't come from the 'v' parameter but was successfully extracted
-        if video_id:
-            return video_id
-    else:
-        return None
-
-
-# ? Utils for WhisperService
-
-
 # ? Tester content - print everything
 def print_full_content(obj, indent=0):
     # Set the indentation level for pretty printing
@@ -111,15 +61,6 @@ def print_full_content(obj, indent=0):
     # Base case: the object is neither a dictionary nor a list/tuple
     else:
         print(f"{ind}{obj}")
-
-
-def convert_time_to_seconds(time_str: str) -> float:
-    hours, minutes, seconds_milliseconds = time_str.split(":")
-    seconds, milliseconds = seconds_milliseconds.split(",")
-    total_seconds = (
-        int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000
-    )
-    return total_seconds
 
 
 def is_metadata_line(line: str) -> bool:
@@ -384,8 +325,226 @@ def stream_message(type: str, data: str):
     return json.dumps({"type": type, "data": data}) + "\n"
 
 
-def cleanup_files(video_id):
-    # Define paths to clean up
+# ! NEW
+def is_metadata(line: str) -> bool:
+    """Determine if a line is metadata rather than actual lyrics."""
+    metadata_patterns = [
+        # Title patterns
+        r"『[^』]+』",  # Japanese quotation marks with title
+        r"【[^】]+】",  # Japanese brackets
+        r"\[[^\]]+\]",  # Square brackets
+        r"^\s*\d+\s*$",  # Just numbers (track numbers)
+        # Credit patterns
+        r"(?i):\s*\w+",  # Key: value format
+        r"(?i)(vocal|music|lyrics|artist|vocal|singer|composer|arrangement|illust|cover|歌|作詞|作曲)",
+        r"(?i)(produced by|covered by|feat\.|ft\.|featuring)",
+        # Formatting and markers
+        r"^\s*-+\s*$",  # Divider lines
+        r"(?i)^(chorus|verse|bridge|intro|outro)",
+        # File metadata
+        r"(?i)(subtitles?|closed\s*captions?|cc\s*:)",
+        r"(?i)(uploaded|published|recorded)",
+        # Time codes and duration
+        r"^\d{2}:\d{2}",  # Timestamp format
+        r"^\d{2}:\d{2}:\d{2}",  # Extended timestamp
+        # General metadata indicators
+        r"[/／]",  # Slashes often used in metadata
+        r"^[\(\（][^\)\）]+[\)\）]$",  # Full line in parentheses
+        r"(?i)(http|www\.)",  # URLs
+        r"©|®|™",  # Copyright symbols
+    ]
+
+    return any(bool(re.search(pattern, line)) for pattern in metadata_patterns)
+
+
+def is_valid_lyrics_line(line: str) -> bool:
+    """
+    Determine if a line is likely to be valid lyrics.
+    Returns True if the line contains Japanese text or looks like valid English lyrics.
+    """
+    # Remove common formatting
+    cleaned = re.sub(r"[\(\（\[\「][^\)\）\]\」]*[\)\）\]\」]", "", line).strip()
+
+    if not cleaned:
+        return False
+
+    # Check for Japanese characters
+    has_japanese = bool(
+        re.search(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", cleaned)
+    )
+    if has_japanese:
+        return True
+
+    # Check for valid English lyrics (at least 2 characters, not just numbers or symbols)
+    has_english = bool(re.search(r"[a-zA-Z]{2,}", cleaned))
+    if has_english and not is_metadata(line):
+        return True
+
+    return False
+
+
+def clean_lyrics_array(lyrics: List[str]) -> List[str]:
+    """Clean an array of lyrics lines, removing metadata and invalid lines."""
+    cleaned = []
+
+    for line in lyrics:
+        line = line.strip()
+        if not line:
+            continue
+
+        if is_valid_lyrics_line(line) and not is_metadata(line):
+            cleaned.append(line)
+
+    return cleaned
+
+
+def clean_timestamped_lyrics(
+    timestamped_lyrics: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Clean timestamped lyrics by removing metadata entries while preserving timing."""
+    cleaned = []
+
+    for entry in timestamped_lyrics:
+        lyric = entry.get("lyric", "").strip()
+        if not lyric:
+            continue
+
+        if is_valid_lyrics_line(lyric) and not is_metadata(lyric):
+            cleaned.append(entry)
+
+    return cleaned
+
+
+def process_lyrics_for_translation(
+    lyrics_arr: List[str], timestamped_lyrics: List[Dict[str, Any]]
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """
+    Process both lyrics array and timestamped lyrics for translation,
+    ensuring they remain synchronized.
+    """
+    # Clean both arrays
+    cleaned_lyrics = clean_lyrics_array(lyrics_arr)
+    cleaned_timestamped = clean_timestamped_lyrics(timestamped_lyrics)
+
+    # Verify synchronization
+    if len(cleaned_lyrics) != len(cleaned_timestamped):
+        raise ValueError("Lyrics arrays lost synchronization during cleaning")
+
+    return cleaned_lyrics, cleaned_timestamped
+
+
+def sanitize_text(text: str) -> str:
+    """
+    Enhanced sanitization for lyrics content handling.
+    """
+    if not isinstance(text, str):
+        return ""
+
+    # Strip VTT timing information
+    text = re.sub(r"\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}", "", text)
+
+    # Remove parenthetical translations/notes
+    text = re.sub(r"\(.*?\)", "", text)
+
+    # Normalize Unicode characters
+    text = unicodedata.normalize("NFKC", text)
+
+    # Remove mathematical alphanumeric symbols
+    text = re.sub(
+        r"[\U0001D400-\U0001D7FF]", "", text
+    )  # Mathematical Alphanumeric Symbols
+    text = re.sub(
+        r"[\U0001F100-\U0001F1FF]", "", text
+    )  # Enclosed Alphanumeric Supplement
+
+    # Remove VTT metadata headers
+    text = re.sub(r"^WEBVTT|^Kind:|^Language:", "", text, flags=re.MULTILINE)
+
+    # Clean up specific formatting
+    text = re.sub(r"/.*$", "", text)  # Remove slash and everything after it on a line
+    text = re.sub(r'["""]', '"', text)  # Normalize quotes
+
+    # Standard character replacements
+    replacements = {
+        "＆": "&",
+        "：": ":",
+        "―": "-",
+        "–": "-",
+        "—": "-",
+        "～": "~",
+        "\u200b": "",
+        "\ufeff": "",
+        "「": "",
+        "」": "",
+        "『": "",
+        "』": "",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # Remove control characters while preserving valid newlines
+    text = "".join(
+        char for char in text if unicodedata.category(char)[0] != "C" or char in "\n\r"
+    )
+
+    # Clean up empty lines and extra whitespace
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+    return text.strip()
+
+
+# Keep existing utility functions but update them to use new functions where appropriate
+def convert_time_to_seconds(time_str: str) -> float:
+    hours, minutes, seconds_milliseconds = time_str.split(":")
+    seconds, milliseconds = seconds_milliseconds.split(",")
+    total_seconds = (
+        int(hours) * 3600 + int(minutes) * 60 + int(seconds) + int(milliseconds) / 1000
+    )
+    return total_seconds
+
+
+def has_japanese_characters(text: str) -> bool:
+    japanese_ranges = [
+        (0x3040, 0x309F),  # Hiragana
+        (0x30A0, 0x30FF),  # Katakana
+        (0x4E00, 0x9FFF),  # Kanji
+        (0xFF66, 0xFF9F),  # Half-width katakana
+    ]
+
+    return any(
+        any(start <= ord(char) <= end for start, end in japanese_ranges)
+        for char in text
+    )
+
+
+def extract_video_id(youtube_url: str) -> str:
+    youtube_url_pattern = r"^https?:\/\/(?:www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)([0-9A-Za-z_-]{11})(&.*)?$"
+
+    # Return as-is if it's already just a video ID
+    if not re.match(youtube_url_pattern, youtube_url):
+        return youtube_url
+
+    video_id_pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11})|youtu\.be\/([0-9A-Za-z_-]{11})"
+    match = re.search(video_id_pattern, youtube_url)
+
+    if match:
+        video_id = match.group(1) if match.group(1) else match.group(2)
+        parsed_url = urlparse(youtube_url)
+
+        if parsed_url.query:
+            query_params = parse_qs(parsed_url.query)
+            if "v" in query_params and video_id in query_params["v"]:
+                return video_id
+
+        if video_id:
+            return video_id
+
+    return None
+
+
+def cleanup_files(video_id: str) -> None:
+    """Clean up temporary files and empty directories."""
     paths_to_clean = [
         f"./output/cached_translations/{video_id}_*.txt",
         f"./output/response_srt/{video_id}.srt",
@@ -400,7 +559,6 @@ def cleanup_files(video_id):
             except Exception as e:
                 print(f"Error removing {file}: {str(e)}")
 
-    # Check if the directories are empty and remove them if they are
     directories_to_check = [
         "./output/cached_translations",
         "./output/response_srt",
@@ -414,5 +572,3 @@ def cleanup_files(video_id):
                 print(f"Removed empty directory: {directory}")
             except Exception as e:
                 print(f"Error removing directory {directory}: {str(e)}")
-
-    print("Cleanup completed.")

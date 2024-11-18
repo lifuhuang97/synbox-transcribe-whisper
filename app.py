@@ -9,7 +9,6 @@ from flask_cors import CORS, cross_origin
 from werkzeug.middleware.proxy_fix import ProxyFix
 import logging
 
-from services.lyrics_processor import LyricsProcessor
 from services.romaji_annotator import RomajiAnnotator
 from services.appwrite_service import AppwriteService
 from services.openai_service import OpenAIService
@@ -107,11 +106,17 @@ def validation_endpoint():
                         try:
                             vid_info = json.loads(update)
                             if "data" in vid_info:
-                                subtitle_info = vid_info["data"].get("subtitle_info", {})
+                                subtitle_info = vid_info["data"].get(
+                                    "subtitle_info", {}
+                                )
                                 logger.info("Subtitle Info Details:")
-                                logger.info(f"Exists: {subtitle_info.get('exist', False)}")
+                                logger.info(
+                                    f"Exists: {subtitle_info.get('exist', False)}"
+                                )
                                 logger.info(f"Path: {subtitle_info.get('path', 'N/A')}")
-                                logger.info(f"Extension: {subtitle_info.get('ext', 'N/A')}")
+                                logger.info(
+                                    f"Extension: {subtitle_info.get('ext', 'N/A')}"
+                                )
                                 logger.info("-" * 50)
                         except json.JSONDecodeError:
                             logger.error("Failed to parse vid_info JSON")
@@ -301,10 +306,9 @@ def translate_annotate_endpoint():
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
                 # Clean lyrics once at the start
-                lyrics_processor = LyricsProcessor()
                 try:
                     cleaned_lyrics, cleaned_timestamped = (
-                        lyrics_processor.process_lyrics_for_translation(
+                        utils.process_lyrics_for_translation(
                             lyrics_arr, timestamped_lyrics
                         )
                     )
