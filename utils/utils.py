@@ -114,7 +114,6 @@ def print_full_content(obj, indent=0):
 
 
 def convert_time_to_seconds(time_str: str) -> float:
-    """Convert timestamp string (HH:MM:SS,mmm) to seconds.milliseconds"""
     hours, minutes, seconds_milliseconds = time_str.split(":")
     seconds, milliseconds = seconds_milliseconds.split(",")
     total_seconds = (
@@ -359,7 +358,7 @@ def clean_and_sync_lyrics(
     cleaned = []
     cleaned_timestamps = []
 
-    for lyric, timestamp_entry in zip(lyrics_arr, timestamped_lyrics):
+    for i, (lyric, timestamp_entry) in enumerate(zip(lyrics_arr, timestamped_lyrics)):
         lyric = lyric.strip()
 
         # Skip empty lines, music markers, or lines with only formatting characters
@@ -370,22 +369,16 @@ def clean_and_sync_lyrics(
         ):
             continue
 
-        # Keep original timestamps but also include converted seconds for frontend
+        # Keep the original timestamp data
         cleaned.append(lyric)
         cleaned_timestamps.append(
             {
-                "id": timestamp_entry["id"],
+                "id": timestamp_entry["id"],  # Keep original ID
                 "startTime": timestamp_entry["startTime"],
+                "startSeconds": timestamp_entry["startSeconds"],
                 "endTime": timestamp_entry["endTime"],
-                "start_time": timestamp_entry[
-                    "startSeconds"
-                ],  # Already in seconds.milliseconds
-                "end_time": timestamp_entry[
-                    "endSeconds"
-                ],  # Already in seconds.milliseconds
-                "duration": timestamp_entry["endSeconds"]
-                - timestamp_entry["startSeconds"],
-                "lyric": lyric,
+                "endSeconds": timestamp_entry["endSeconds"],
+                "text": lyric,
             }
         )
 
@@ -393,20 +386,11 @@ def clean_and_sync_lyrics(
 
 
 def prepare_full_lyrics(timestamped_lyrics: List[Dict[str, Any]]) -> str:
-    """Prepare the full lyrics JSON for frontend consumption."""
-    # Format timestamps for frontend
-    frontend_lyrics = []
-    for entry in timestamped_lyrics:
-        frontend_lyrics.append(
-            {
-                "start_time": entry["startSeconds"],
-                "end_time": entry["endSeconds"],
-                "duration": entry["endSeconds"] - entry["startSeconds"],
-                "lyric": entry["text"],
-            }
-        )
-
-    return json.dumps(frontend_lyrics, ensure_ascii=False)
+    """
+    Prepare the full lyrics JSON for frontend consumption.
+    Preserves original ID and timestamp format.
+    """
+    return json.dumps(timestamped_lyrics, ensure_ascii=False)
 
 
 def stream_message(type: str, data: str):
