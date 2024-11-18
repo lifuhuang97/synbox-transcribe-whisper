@@ -85,8 +85,6 @@ def validation_endpoint():
 
             yield utils.stream_message("update", "Initializing...")
             time.sleep(0.3)
-            yield utils.stream_message("update", "Parsing request data...")
-            time.sleep(0.5)
 
             try:
                 data = request.json
@@ -94,11 +92,13 @@ def validation_endpoint():
                 if not video_id:
                     raise ValueError("Invalid or missing video ID in request.")
 
-                yield utils.stream_message("update", f"Received Video ID {video_id}")
-                time.sleep(0.4)
+                yield utils.stream_message(
+                    "update", f"Received request for ID {video_id}"
+                )
+                time.sleep(0.3)
 
                 yield utils.stream_message("update", "Gathering video metadata...")
-                time.sleep(1)
+                time.sleep(0.4)
 
                 # Stream validation updates (now includes upload)
                 for update in openai_service.validate_video(video_id):
@@ -166,7 +166,7 @@ def transcription_endpoint_v2():
                 temp_dir = Path("./temp")
                 temp_dir.mkdir(exist_ok=True)
                 yield utils.stream_message("update", "Initializing transcription...")
-                time.sleep(3)
+                time.sleep(2)
                 if subtitle_exist:
                     yield utils.stream_message(
                         "update", "Retrieving saved subtitles..."
@@ -305,13 +305,34 @@ def translate_annotate_endpoint():
                 lyrics_arr = data.get("lyrics")
                 timestamped_lyrics = data.get("timestamped_lyrics")
 
-                # Clean lyrics once at the start
+                # Process lyrics while preserving timestamp relationships
                 try:
                     cleaned_lyrics, cleaned_timestamped = (
                         utils.process_lyrics_for_translation(
                             lyrics_arr, timestamped_lyrics
                         )
                     )
+
+                    # Verify timing preservation
+                    if len(cleaned_lyrics) != len(cleaned_timestamped):
+                        raise ValueError(
+                            f"Timing mismatch after processing. Lyrics: {len(cleaned_lyrics)}, "
+                            f"Timestamps: {len(cleaned_timestamped)}"
+                        )
+
+                    # Log processing results for debugging
+                    print(f"Original lyrics count: {len(lyrics_arr)}")
+                    print(f"Processed lyrics count: {len(cleaned_lyrics)}")
+
+                    # Verify timestamp preservation
+                    for i, (orig, processed) in enumerate(
+                        zip(timestamped_lyrics, cleaned_timestamped)
+                    ):
+                        if orig["start_time"] != processed["start_time"]:
+                            print(f"Timestamp mismatch at index {i}")
+                            print(f"Original: {orig}")
+                            print(f"Processed: {processed}")
+
                 except ValueError as e:
                     yield utils.stream_message(
                         "error", f"Error processing lyrics: {str(e)}"

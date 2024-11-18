@@ -390,26 +390,63 @@ def process_lyrics_for_translation(
     lyrics_arr: List[str], timestamped_lyrics: List[Dict[str, Any]]
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
-    Process lyrics while maintaining strict timestamp correspondence.
-    Each lyric must keep its original timestamp.
+    Process lyrics while strictly preserving timestamp-lyric pairs.
+    If a lyric is filtered out, its corresponding timestamp entry is also removed,
+    preventing lyrics from shifting to incorrect timestamps.
+
+    Args:
+        lyrics_arr: List of lyrics lines
+        timestamped_lyrics: List of dictionaries containing timing information
+
+    Returns:
+        Tuple[List[str], List[Dict[str, Any]]]: Processed lyrics and their corresponding timing data
     """
     if len(lyrics_arr) != len(timestamped_lyrics):
-        raise ValueError("Input arrays must have matching lengths")
+        raise ValueError(
+            f"Input arrays must have matching lengths. Lyrics: {len(lyrics_arr)}, Timestamps: {len(timestamped_lyrics)}"
+        )
 
-    # Create pairs of lyrics with their timing data
-    paired_lyrics = list(zip(lyrics_arr, timestamped_lyrics))
+    def is_valid_line(line: str) -> bool:
+        """
+        Determine if a line should be kept in the processed output.
+        """
+        # Keep instrumental markers
+        if line.strip() in ["[音楽]", "(音楽)", "［音楽］"]:
+            return True
 
-    # Filter pairs while maintaining timing relationship
-    cleaned_pairs = [
-        (lyric, timing)
-        for lyric, timing in paired_lyrics
-        if is_valid_lyrics_line(lyric) and not is_metadata(lyric)
-    ]
+        # Remove empty lines
+        if not line or line.isspace():
+            return False
 
-    # Unzip the pairs
-    if cleaned_pairs:
-        cleaned_lyrics, cleaned_timestamped = zip(*cleaned_pairs)
-        return list(cleaned_lyrics), list(cleaned_timestamped)
+        # Keep lines with actual content
+        return True
+
+    # Create paired list of (lyric, timestamp) tuples
+    paired_data = list(zip(lyrics_arr, timestamped_lyrics))
+
+    # Filter pairs together, keeping valid lines and their corresponding timestamps
+    processed_pairs = []
+
+    for i, (lyric, timestamp) in enumerate(paired_data):
+        if is_valid_line(lyric):
+            # Create a new timestamp dict to avoid modifying the original
+            processed_pairs.append(
+                (
+                    lyric.strip(),
+                    {
+                        "start_time": timestamp["start_time"],
+                        "end_time": timestamp["end_time"],
+                        "duration": timestamp["duration"],
+                        "lyric": lyric.strip(),
+                    },
+                )
+            )
+
+    # Unzip the pairs into separate lists
+    if processed_pairs:
+        processed_lyrics, processed_timestamps = zip(*processed_pairs)
+        return list(processed_lyrics), list(processed_timestamps)
+
     return [], []
 
 
