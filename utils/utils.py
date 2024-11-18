@@ -353,22 +353,27 @@ def clean_and_sync_lyrics(
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
     Clean lyrics while maintaining proper timestamp synchronization.
+    Returns cleaned lyrics array and timestamped lyrics with original timestamps preserved.
     """
     cleaned = []
     cleaned_timestamps = []
 
-    for lyric, timestamp_entry in zip(lyrics_arr, timestamped_lyrics):
+    for i, (lyric, timestamp_entry) in enumerate(zip(lyrics_arr, timestamped_lyrics)):
         lyric = lyric.strip()
 
-        # Skip empty lines or pure music markers
-        if not lyric or not bool(re.sub(r"[\s\[\]（）()-]", "", lyric)):
+        # Skip empty lines, music markers, or lines with only formatting characters
+        if (
+            not lyric
+            or lyric == "[音楽]"
+            or not bool(re.sub(r"[\s\[\]（）()-]", "", lyric))
+        ):
             continue
 
-        # Keep the original timestamp data for this line
+        # Keep the original timestamp data
         cleaned.append(lyric)
         cleaned_timestamps.append(
             {
-                "id": str(len(cleaned)),
+                "id": timestamp_entry["id"],  # Keep original ID
                 "startTime": timestamp_entry["startTime"],
                 "startSeconds": timestamp_entry["startSeconds"],
                 "endTime": timestamp_entry["endTime"],
@@ -381,11 +386,10 @@ def clean_and_sync_lyrics(
 
 
 def prepare_full_lyrics(timestamped_lyrics: List[Dict[str, Any]]) -> str:
-    """Prepare the full lyrics JSON for frontend consumption."""
-    # Reset IDs while keeping original timestamps
-    for i, entry in enumerate(timestamped_lyrics, 1):
-        entry["id"] = str(i)
-
+    """
+    Prepare the full lyrics JSON for frontend consumption.
+    Preserves original ID and timestamp format.
+    """
     return json.dumps(timestamped_lyrics, ensure_ascii=False)
 
 
