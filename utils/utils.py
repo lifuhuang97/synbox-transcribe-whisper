@@ -221,7 +221,6 @@ def process_subtitle_file(
     max_lyric_length: int = 50,
     apply_error_checks: bool = False,
 ) -> Dict[str, Any]:
-
     def parse_time(time_str: str) -> float:
         if "," in time_str:  # SRT format
             time_str = time_str.replace(",", ".")
@@ -238,6 +237,7 @@ def process_subtitle_file(
     ) -> List[Dict[str, Any]]:
         timestamped_lyrics = []
 
+        # Define pattern based on format
         if subtitle_format.lower() in ["srt", ".srt"]:
             pattern = r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)\n((?:.+\n?)+)"
         elif subtitle_format.lower() in ["vtt", ".vtt"]:
@@ -247,84 +247,112 @@ def process_subtitle_file(
         else:
             raise ValueError(f"Unsupported subtitle format: {subtitle_format}")
 
+        # First pass: collect all valid lyrics with their timestamps
+        valid_blocks = []
         for match in re.finditer(pattern, content, re.MULTILINE):
             start_time = round(parse_time(match.group(1)), 3)
             end_time = round(parse_time(match.group(2)), 3)
             lyric_block = match.group(3).strip()
 
-            # First clean the lyrics block using existing clean_lyrics function
+            # Clean and validate the lyrics block
             cleaned_lines, _ = clean_lyrics(lyric_block)
-
-            if not cleaned_lines:
-                continue
-
-            # Now handle multi-line cases and annotations
-            if len(cleaned_lines) == 1:
-                # Single line case - use as is
-                lyric = cleaned_lines[0]
-            else:
-                # Multi-line case - check if first line is Japanese
-                if has_japanese_characters(cleaned_lines[0]):
-                    # If first line is Japanese, only keep that line
+            if cleaned_lines:
+                # Process Japanese subtitles
+                if len(cleaned_lines) == 1:
                     lyric = cleaned_lines[0]
                 else:
-                    # If first line isn't Japanese, keep all cleaned lines
-                    lyric = " ".join(cleaned_lines)
+                    if has_japanese_characters(cleaned_lines[0]):
+                        lyric = cleaned_lines[0]
+                    else:
+                        lyric = " ".join(cleaned_lines)
 
-            # Process the Japanese subtitle
-            lyric = process_japanese_subtitle(lyric)
-            duration = round(end_time - start_time, 3)
+                lyric = process_japanese_subtitle(lyric)
 
-            # Continue with your existing filtering logic
-            if apply_filters and any(
-                exclude_str in lyric for exclude_str in exclude_strings
-            ):
-                lyric = "「不正確なため削除されました」"
-
-            if not apply_filters or (
-                not (duration >= max_duration and len(lyric) > 20)
-                and not (len(lyric) > max_lyric_length)
-            ):
-                if (
-                    len(lyric) > max_lyric_length
-                    and " " in lyric
-                    and lyric != "「不正確なため削除されました」"
+                # Apply filters if needed
+                if apply_filters and any(
+                    exclude_str in lyric for exclude_str in exclude_strings
                 ):
-                    words = lyric.split()
-                    current_line = ""
-                    lines = []
-                    for word in words:
-                        if len(current_line) + len(word) + 1 > max_lyric_length:
-                            lines.append(current_line)
-                            current_line = word
-                        else:
-                            if current_line:
-                                current_line += " "
-                            current_line += word
-                    if current_line:
-                        lines.append(current_line)
+                    continue
 
-                    split_duration = duration / len(lines)
-                    for i, line in enumerate(lines):
-                        new_start_time = round(start_time + i * split_duration, 3)
-                        new_end_time = round(start_time + (i + 1) * split_duration, 3)
-                        timestamped_lyrics.append(
-                            {
-                                "start_time": new_start_time,
-                                "end_time": new_end_time,
-                                "duration": round(new_end_time - new_start_time, 3),
-                                "lyric": line,
-                            }
-                        )
-                else:
+                duration = round(end_time - start_time, 3)
+                if apply_filters and (duration >= max_duration and len(lyric) > 20):
+                    continue
+
+                valid_blocks.append(
+                    {"start_time": start_time, "end_time": end_time, "lyric": lyric}
+                )
+
+        # Second pass: adjust timestamps to ensure continuity
+        for i in range(len(valid_blocks)):
+            current_block = valid_blocks[i]
+
+            # If this isn't the first block, ensure it starts right after the previous block
+            if i > 0:
+                previous_block = valid_blocks[i - 1]
+                if current_block["start_time"] > previous_block["end_time"]:
+                    # Fill the gap - start this block right after the previous one
+                    current_block["start_time"] = previous_block["end_time"]
+
+            # If this isn't the last block, adjust end time if needed
+            if i < len(valid_blocks) - 1:
+                next_block = valid_blocks[i + 1]
+                if current_block["end_time"] > next_block["start_time"]:
+                    # Avoid overlap - end this block when the next one starts
+                    current_block["end_time"] = next_block["start_time"]
+
+            # Handle long lyrics that need splitting
+            lyric = current_block["lyric"]
+            if (
+                len(lyric) > max_lyric_length
+                and " " in lyric
+                and lyric != "「不正確なため削除されました」"
+            ):
+                words = lyric.split()
+                current_line = ""
+                lines = []
+
+                # Split into appropriate length lines
+                for word in words:
+                    if len(current_line) + len(word) + 1 > max_lyric_length:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        if current_line:
+                            current_line += " "
+                        current_line += word
+                if current_line:
+                    lines.append(current_line)
+
+                # Calculate time per line
+                block_duration = current_block["end_time"] - current_block["start_time"]
+                time_per_line = block_duration / len(lines)
+
+                # Add each line with its calculated timestamp
+                for j, line in enumerate(lines):
+                    new_start = round(
+                        current_block["start_time"] + (j * time_per_line), 3
+                    )
+                    new_end = round(new_start + time_per_line, 3)
                     timestamped_lyrics.append(
                         {
-                            "start_time": start_time,
-                            "end_time": end_time,
-                            "duration": duration,
-                            "lyric": lyric,
+                            "start_time": new_start,
+                            "end_time": new_end,
+                            "duration": round(time_per_line, 3),
+                            "lyric": line,
                         }
                     )
+            else:
+                # Add single line with its timestamp
+                timestamped_lyrics.append(
+                    {
+                        "start_time": current_block["start_time"],
+                        "end_time": current_block["end_time"],
+                        "duration": round(
+                            current_block["end_time"] - current_block["start_time"], 3
+                        ),
+                        "lyric": lyric,
+                    }
+                )
 
         return timestamped_lyrics
 
@@ -337,24 +365,15 @@ def process_subtitle_file(
         content, file_format, exclude_strings, apply_filters=True
     )
 
-    # Modified: We don't need to reprocess without filters since we're keeping all lines now
-    # The following block can be removed if you want to keep only the filtered version
-    if not timestamped_lyrics:
-        timestamped_lyrics = process_subtitle(
-            content, file_format, exclude_strings, apply_filters=False
-        )
-
-    # Check for repeated content if apply_error_checks is True and timestamped_lyrics is not empty
+    # Error checking
     if apply_error_checks and timestamped_lyrics:
         content_count = {}
         for item in timestamped_lyrics:
             content = item["lyric"]
-            if (
-                content != "「不正確なため削除されました」"
-            ):  # Don't count redacted lines in repetition check
+            if content != "「不正確なため削除されました」":
                 content_count[content] = content_count.get(content, 0) + 1
 
-        if content_count:  # Only check if there are non-redacted lines
+        if content_count:
             most_common_content = max(content_count, key=content_count.get)
             most_common_count = content_count[most_common_content]
             total_non_redacted = sum(content_count.values())
