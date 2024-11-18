@@ -77,7 +77,6 @@ def is_metadata_line(line: str) -> bool:
     metadata_patterns = [
         r"^[\w\s]+\s*[:：]\s*[\w\s]+$",  # Key: Value format
         r"^[𝚅𝚘𝚌𝚊𝚕𝙼𝚞𝚜𝚒𝚌𝙸𝚕𝚕𝚞𝚜𝚝𝚛𝚊𝚝𝚘𝚛𝙳𝚒𝚛𝚎𝚌𝚝𝚘𝚛]",  # Styled text often used in headers
-        r"^\s*[\(\［【［\[].+[\)\］】］\]]\s*$",  # Bracketed text only
         r"^[-—]+$",  # Divider lines
         r"^\s*[Cc]horus\s*:?\s*$",  # Chorus marker
         r"^\s*[Vv]erse\s*\d*\s*:?\s*$",  # Verse marker
@@ -162,7 +161,6 @@ def process_subtitle_file(
     max_lyric_length: int = 50,
     apply_error_checks: bool = False,
 ) -> Dict[str, Any]:
-
     def parse_time(time_str: str) -> float:
         if "," in time_str:  # SRT format
             time_str = time_str.replace(",", ".")
@@ -188,131 +186,111 @@ def process_subtitle_file(
         else:
             raise ValueError(f"Unsupported subtitle format: {subtitle_format}")
 
-        for match in re.finditer(pattern, content, re.MULTILINE):
+        matches = list(re.finditer(pattern, content, re.MULTILINE))
+
+        for match in matches:
             start_time = round(parse_time(match.group(1)), 3)
             end_time = round(parse_time(match.group(2)), 3)
             lyric_block = match.group(3).strip()
 
-            # First clean the lyrics block using existing clean_lyrics function
-            cleaned_lines, _ = clean_lyrics(lyric_block)
+            # Store original timing with the lyric
+            entry = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration": round(end_time - start_time, 3),
+                "lyric": lyric_block,
+            }
 
-            if not cleaned_lines:
+            processed_lyric = process_japanese_subtitle(lyric_block)
+
+            # Skip excluded strings while maintaining timing relationship
+            if apply_filters and any(
+                exclude_str in processed_lyric for exclude_str in exclude_strings
+            ):
                 continue
 
-            # Now handle multi-line cases and annotations
-            if len(cleaned_lines) == 1:
-                # Single line case - use as is
-                lyric = cleaned_lines[0]
-            else:
-                # Multi-line case - check if first line is Japanese
-                if has_japanese_characters(cleaned_lines[0]):
-                    # If first line is Japanese, only keep that line
-                    lyric = cleaned_lines[0]
-                else:
-                    # If first line isn't Japanese, keep all cleaned lines
-                    lyric = " ".join(cleaned_lines)
+            # Handle line length limits while preserving timing
+            if len(processed_lyric) > max_lyric_length and " " in processed_lyric:
+                words = processed_lyric.split()
+                current_line = ""
+                lines = []
 
-            # Process the Japanese subtitle
-            lyric = process_japanese_subtitle(lyric)
-            duration = round(end_time - start_time, 3)
-
-            # Continue with your existing filtering logic
-            if apply_filters and any(
-                exclude_str in lyric for exclude_str in exclude_strings
-            ):
-                lyric = "「不正確なため削除されました」"
-
-            if not apply_filters or (
-                not (duration >= max_duration and len(lyric) > 20)
-                and not (len(lyric) > max_lyric_length)
-            ):
-                if (
-                    len(lyric) > max_lyric_length
-                    and " " in lyric
-                    and lyric != "「不正確なため削除されました」"
-                ):
-                    words = lyric.split()
-                    current_line = ""
-                    lines = []
-                    for word in words:
-                        if len(current_line) + len(word) + 1 > max_lyric_length:
+                for word in words:
+                    if len(current_line) + len(word) + 1 > max_lyric_length:
+                        if current_line:
                             lines.append(current_line)
-                            current_line = word
-                        else:
-                            if current_line:
-                                current_line += " "
-                            current_line += word
-                    if current_line:
-                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        current_line = f"{current_line} {word}".strip()
 
-                    split_duration = duration / len(lines)
+                if current_line:
+                    lines.append(current_line)
+
+                # Only split timing if we actually need to split the line
+                if lines:
+                    time_per_segment = entry["duration"] / len(lines)
                     for i, line in enumerate(lines):
-                        new_start_time = round(start_time + i * split_duration, 3)
-                        new_end_time = round(start_time + (i + 1) * split_duration, 3)
+                        segment_start = entry["start_time"] + (i * time_per_segment)
+                        segment_end = segment_start + time_per_segment
                         timestamped_lyrics.append(
                             {
-                                "start_time": new_start_time,
-                                "end_time": new_end_time,
-                                "duration": round(new_end_time - new_start_time, 3),
+                                "start_time": round(segment_start, 3),
+                                "end_time": round(segment_end, 3),
+                                "duration": round(time_per_segment, 3),
                                 "lyric": line,
                             }
                         )
-                else:
-                    timestamped_lyrics.append(
-                        {
-                            "start_time": start_time,
-                            "end_time": end_time,
-                            "duration": duration,
-                            "lyric": lyric,
-                        }
-                    )
+            else:
+                entry["lyric"] = processed_lyric
+                timestamped_lyrics.append(entry)
 
         return timestamped_lyrics
 
-    # Read file content
+    # Read and process content
     with open(file_path, "r", encoding="utf-8") as file:
         content = file.read()
 
-    # Process subtitles with filters
+    # Process with filters first
     timestamped_lyrics = process_subtitle(
         content, file_format, exclude_strings, apply_filters=True
     )
 
-    # Modified: We don't need to reprocess without filters since we're keeping all lines now
-    # The following block can be removed if you want to keep only the filtered version
+    # Only try without filters if we got no results
     if not timestamped_lyrics:
         timestamped_lyrics = process_subtitle(
             content, file_format, exclude_strings, apply_filters=False
         )
 
-    # Check for repeated content if apply_error_checks is True and timestamped_lyrics is not empty
+    # Error checking for repeated content
     if apply_error_checks and timestamped_lyrics:
         content_count = {}
         for item in timestamped_lyrics:
             content = item["lyric"]
-            if (
-                content != "「不正確なため削除されました」"
-            ):  # Don't count redacted lines in repetition check
-                content_count[content] = content_count.get(content, 0) + 1
+            content_count[content] = content_count.get(content, 0) + 1
 
-        if content_count:  # Only check if there are non-redacted lines
+        if content_count:
             most_common_content = max(content_count, key=content_count.get)
             most_common_count = content_count[most_common_content]
-            total_non_redacted = sum(content_count.values())
+            total_lines = len(content_count)
 
-            if most_common_count / total_non_redacted >= 0.8:
+            if most_common_count / total_lines >= 0.8:
                 raise ValueError(
                     "The transcription may have errored out, please try again later [high repetition]."
                 )
 
-    # Generate other required outputs
+    # Generate outputs
     lyrics = [item["lyric"] for item in timestamped_lyrics]
-    filtered_srt = "\n\n".join(
-        [
-            f"{i + 1}\n{item['start_time']:.3f} --> {item['end_time']:.3f}\n{item['lyric']}"
-            for i, item in enumerate(timestamped_lyrics)
-        ]
-    )
+
+    # Generate SRT maintaining original timing
+    filtered_srt_lines = []
+    for i, item in enumerate(timestamped_lyrics):
+        start_time_str = format_timestamp(item["start_time"])
+        end_time_str = format_timestamp(item["end_time"])
+        filtered_srt_lines.extend(
+            [str(i + 1), f"{start_time_str} --> {end_time_str}", item["lyric"], ""]
+        )
+
+    filtered_srt = "\n".join(filtered_srt_lines).strip()
 
     return {
         "lyrics": lyrics,
@@ -330,11 +308,6 @@ def is_metadata(line: str) -> bool:
     """Determine if a line is metadata rather than actual lyrics."""
     metadata_patterns = [
         # Title patterns
-        r"『[^』]+』",  # Japanese quotation marks with title
-        r"【[^】]+】",  # Japanese brackets
-        r"\[[^\]]+\]",  # Square brackets
-        r"^\s*\d+\s*$",  # Just numbers (track numbers)
-        # Credit patterns
         r"(?i):\s*\w+",  # Key: value format
         r"(?i)(vocal|music|lyrics|artist|vocal|singer|composer|arrangement|illust|cover|歌|作詞|作曲)",
         r"(?i)(produced by|covered by|feat\.|ft\.|featuring)",
@@ -401,36 +374,51 @@ def clean_lyrics_array(lyrics: List[str]) -> List[str]:
 def clean_timestamped_lyrics(
     timestamped_lyrics: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    """Clean timestamped lyrics by removing metadata entries while preserving timing."""
-    cleaned = []
-
-    for entry in timestamped_lyrics:
-        lyric = entry.get("lyric", "").strip()
-        if not lyric:
-            continue
-
-        if is_valid_lyrics_line(lyric) and not is_metadata(lyric):
-            cleaned.append(entry)
-
-    return cleaned
+    """
+    Clean lyrics while preserving timestamp relationships.
+    """
+    return [
+        entry
+        for entry in timestamped_lyrics
+        if entry.get("lyric")
+        and is_valid_lyrics_line(entry["lyric"])
+        and not is_metadata(entry["lyric"])
+    ]
 
 
 def process_lyrics_for_translation(
     lyrics_arr: List[str], timestamped_lyrics: List[Dict[str, Any]]
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
-    Process both lyrics array and timestamped lyrics for translation,
-    ensuring they remain synchronized.
+    Process lyrics while maintaining strict timestamp correspondence.
+    Each lyric must keep its original timestamp.
     """
-    # Clean both arrays
-    cleaned_lyrics = clean_lyrics_array(lyrics_arr)
-    cleaned_timestamped = clean_timestamped_lyrics(timestamped_lyrics)
+    if len(lyrics_arr) != len(timestamped_lyrics):
+        raise ValueError("Input arrays must have matching lengths")
 
-    # Verify synchronization
-    if len(cleaned_lyrics) != len(cleaned_timestamped):
-        raise ValueError("Lyrics arrays lost synchronization during cleaning")
+    # Create pairs of lyrics with their timing data
+    paired_lyrics = list(zip(lyrics_arr, timestamped_lyrics))
 
-    return cleaned_lyrics, cleaned_timestamped
+    # Filter pairs while maintaining timing relationship
+    cleaned_pairs = [
+        (lyric, timing)
+        for lyric, timing in paired_lyrics
+        if is_valid_lyrics_line(lyric) and not is_metadata(lyric)
+    ]
+
+    # Unzip the pairs
+    if cleaned_pairs:
+        cleaned_lyrics, cleaned_timestamped = zip(*cleaned_pairs)
+        return list(cleaned_lyrics), list(cleaned_timestamped)
+    return [], []
+
+
+def format_timestamp(seconds: float) -> str:
+    """Convert seconds to SRT timestamp format."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}".replace(".", ",")
 
 
 def sanitize_text(text: str) -> str:
