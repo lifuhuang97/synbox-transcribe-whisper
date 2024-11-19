@@ -1,0 +1,3 @@
+*.py linguist-language=Python
+*.txt linguist-language=Python
+requirements.txt linguist-language=Python
