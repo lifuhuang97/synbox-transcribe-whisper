@@ -13,7 +13,7 @@ class RomajiAnnotator:
             organization=organization,
             project=project,
         )
-        self.MODEL = "gpt-4o-2024-08-06"
+        self.MODEL = "gpt-4o-latest"
         self.MAX_RETRIES = 3
         self.RETRY_DELAY = 2
 
