@@ -1,2 +1,2 @@
-# synbox-transcribe-whisper
+# Synbox Flask Backend
  
