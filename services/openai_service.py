@@ -331,7 +331,7 @@ class OpenAIService:
                         prompt=whisper_prompt,
                         response_format="srt",
                         timestamp_granularities=["segment"],
-                        temperature=0.37,
+                        temperature=0.72,
                     )
                 except OpenAIError as api_error:
                     raise TranscriptionValidationError(
