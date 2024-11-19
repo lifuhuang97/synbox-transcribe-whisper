@@ -213,7 +213,7 @@ def transcription_endpoint_v2():
 
                 if not subtitle_exist:
                     yield utils.stream_message("update", "Transcription in progress...")
-
+                    time.sleep(1.5)
                     audio_path = temp_dir / f"{video_id}.m4a"
                     if not appwrite_service.download_song(
                         f"{video_id}.m4a", audio_path
@@ -223,7 +223,7 @@ def transcription_endpoint_v2():
                             f"{video_id}.mp4", audio_path
                         ):
                             raise Exception("Failed to download audio file")
-
+                    time.sleep(1.5)
                     raw_transcription_path = openai_service.get_transcription(
                         video_id, audio_path
                     )

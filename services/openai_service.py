@@ -319,8 +319,7 @@ class OpenAIService:
             # Ensure the output directory exists
             os.makedirs(media_dir, exist_ok=True)
 
-            print("This is audio path")
-            print(audio_file_path)
+            time.sleep(3)
 
             # Open and transcribe the audio file
             with open(audio_file_path, "rb") as audio_file:
@@ -332,7 +331,7 @@ class OpenAIService:
                         prompt=whisper_prompt,
                         response_format="srt",
                         timestamp_granularities=["segment"],
-                        temperature=0.77,
+                        temperature=0.37,
                     )
                 except OpenAIError as api_error:
                     raise TranscriptionValidationError(
