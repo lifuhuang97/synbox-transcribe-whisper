@@ -160,7 +160,8 @@ def transcription_endpoint_v2():
             data = request.json
             video_id = data.get("id")
             subtitle_info = data.get("subtitle_info")
-            subtitle_exist = subtitle_info["exist"]
+            force_ai_transcription = data.get("force_ai_transcription", False)
+            subtitle_exist = subtitle_info["exist"] and not force_ai_transcription
 
             try:
                 temp_dir = Path("./temp")
