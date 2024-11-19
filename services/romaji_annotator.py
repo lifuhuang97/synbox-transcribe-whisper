@@ -13,7 +13,7 @@ class RomajiAnnotator:
             organization=organization,
             project=project,
         )
-        self.MODEL = "gpt-4o-latest"
+        self.MODEL = "gpt-4o"
         self.MAX_RETRIES = 3
         self.RETRY_DELAY = 2
 
@@ -278,11 +278,7 @@ class RomajiAnnotator:
                 function_call = gpt_response.choices[0].message.tool_calls[0].function
                 cleaned_response = self.sanitize_text(function_call.arguments)
                 romaji_line = json.loads(cleaned_response)
-                return (
-                    romaji_line["romaji"][0]
-                    if romaji_line.get("romaji")
-                    else "-"
-                )
+                return romaji_line["romaji"][0] if romaji_line.get("romaji") else "-"
 
             return "-"
 

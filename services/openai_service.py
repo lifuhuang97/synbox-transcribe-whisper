@@ -63,7 +63,7 @@ class OpenAIService:
             organization=organization,
             project=project,
         )
-        self.MODEL = "gpt-4o-latest"
+        self.MODEL = "gpt-4o"
         self.appwrite_service = appwrite_service
 
     def validate_video(self, video_id):
