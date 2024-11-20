@@ -2,5 +2,8 @@
 *.txt linguist-language=Python
 requirements.txt linguist-language=Python
 
+clean_env/* linguist-ignore
+myenv/* linguist-ignore
+
 *.txt linguist-detectable=false
 docs/* linguist-documentation
