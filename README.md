@@ -13,6 +13,7 @@
 </p>
 <p align="center">
   Backend service for Synbox - AI-powered Japanese lyrics transcription and translation platform.
+  <br/>
   View the <a href="https://github.com/lifuhh/synbox">frontend repository</a> here
   <br/>
   <br />
