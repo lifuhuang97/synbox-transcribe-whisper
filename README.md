@@ -44,7 +44,7 @@ The Synbox backend is built with Python Flask, providing a robust and scalable s
 |------------|---------|-------------|
 | **Flask** | Web Framework | High-performance WSGI web application framework |
 | **Gunicorn** | WSGI Server | Production-grade server with thread-based workers |
-| **OpenAI API** | AI Processing | Powers Whisper and GPT-4 based processing |
+| **OpenAI API** | AI Processing | Powers Whisper and GPT-4o based processing |
 | **Appwrite SDK** | Storage | Cloud storage and caching implementation |
 | **FFmpeg** | Media Handling | Audio extraction and processing |
 
