@@ -246,7 +246,7 @@ def process_subtitle_file(
             else:
                 entry["lyric"] = processed_lyric
                 timestamped_lyrics.append(entry)
-
+        # //
         return timestamped_lyrics
 
     # Read and process content
