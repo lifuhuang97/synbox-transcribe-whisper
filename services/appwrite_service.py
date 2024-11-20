@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import os
 from appwrite.client import Client
 from appwrite.services.storage import Storage
-from appwrite.payload import Payload
+from appwrite.input_file import InputFile
 from appwrite.exception import AppwriteException
 from appwrite.query import Query
 import logging
@@ -164,9 +164,9 @@ class AppwriteService:
             return True
 
         try:
-            payload = Payload.from_file(subtitle.path, filename=file_id)
+            input_file = InputFile.from_path(str(subtitle.path))
             self.storage.create_file(
-                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
+                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=input_file
             )
             print(f"Successfully uploaded lyrics: {file_id}")
             return True
@@ -284,9 +284,9 @@ class AppwriteService:
             return True
 
         try:
-            payload = Payload.from_file(srt_path, filename=file_id)
+            input_file = InputFile.from_path(str(srt_path))
             self.storage.create_file(
-                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=payload
+                bucket_id=self.lyrics_bucket_id, file_id=file_id, file=input_file
             )
             print(f"Successfully uploaded SRT file: {file_id}")
             return True
@@ -319,9 +319,9 @@ class AppwriteService:
                 print(f"Audio file already exists in storage: {file_id}")
                 return True
 
-            payload = Payload.from_file(audio_file, filename=file_id)
+            input_file = InputFile.from_path(str(audio_file))
             self.storage.create_file(
-                bucket_id=self.songs_bucket_id, file_id=file_id, file=payload
+                bucket_id=self.songs_bucket_id, file_id=file_id, file=input_file
             )
             print(f"Successfully uploaded audio file: {file_id}")
             return True
@@ -506,11 +506,11 @@ class AppwriteService:
             song_success = False
             try:
                 if not self.file_exists_in_songs_bucket(video_id, audio_file.suffix):
-                    payload = Payload.from_file(audio_file, filename=song_file_id)
+                    input_file = InputFile.from_path(str(audio_file))
                     self.storage.create_file(
                         bucket_id=self.songs_bucket_id,
                         file_id=song_file_id,
-                        file=payload,
+                        file=input_file,
                     )
                     print(f"Successfully uploaded song: {song_file_id}")
                 song_success = True
@@ -524,13 +524,11 @@ class AppwriteService:
                 if metadata_path.exists() and not self.file_exists_in_songs_bucket(
                     video_id, ".info.json"
                 ):
-                    payload = Payload.from_file(
-                        metadata_path, filename=metadata_file_id
-                    )
+                    input_file = InputFile.from_path(str(metadata_path))
                     self.storage.create_file(
                         bucket_id=self.songs_bucket_id,
                         file_id=metadata_file_id,
-                        file=payload,
+                        file=input_file,
                     )
                     print(f"Successfully uploaded metadata: {metadata_file_id}")
                 metadata_success = True
@@ -592,9 +590,9 @@ class AppwriteService:
                 print(f"Metadata file already exists in storage: {file_id}")
                 return True
 
-            payload = Payload.from_file(metadata_path, filename=file_id)
+            input_file = InputFile.from_path(str(metadata_path))
             self.storage.create_file(
-                bucket_id=self.songs_bucket_id, file_id=file_id, file=payload
+                bucket_id=self.songs_bucket_id, file_id=file_id, file=input_file
             )
             print(f"Successfully uploaded metadata file: {file_id}")
             return True

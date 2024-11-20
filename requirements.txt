@@ -1,6 +1,6 @@
 annotated-types==0.7.0
 anyio==4.6.2.post1
-git+https://github.com/appwrite/sdk-for-python.git@7.0.0
+appwrite==6.1.0
 blinker==1.8.2
 certifi==2024.8.30
 charset-normalizer==3.4.0
