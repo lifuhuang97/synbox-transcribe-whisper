@@ -1,10 +1,10 @@
 <p align="center">
-  <a href="https://synbox.io" target="_blank">
+  <a href="https://synbox.io" target="_blank" rel="noopener noreferrer">
     <img src="logos/Synbox.svg" alt="Synbox Logo" width="340px" />
   </a>
 </p>
 <p align="center">
-  <a href="./LICENSE">
+  <a href="./LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-Personal_Use-red" alt="License Badge" />
   </a>
   <a href="#">
@@ -14,15 +14,15 @@
 <p align="center">
   Backend service for Synbox - AI-powered Japanese lyrics transcription and translation platform.
   <br/>
-  View the <a href="https://github.com/lifuhh/synbox">frontend repository</a> here
+  View the <a href="https://github.com/lifuhh/synbox" target="_blank" rel="noopener noreferrer">frontend repository</a> here
   <br/>
   <br />
-  <a href="https://synbox.io"><strong>Visit Website »</strong></a>
+  <a href="https://synbox.io" target="_blank" rel="noopener noreferrer"><strong>Visit Website »</strong></a>
   <br />
   <br />
   <a href="https://github.com/lifuhh/synbox-backend">Explore the Docs</a> · 
-  <a href="https://github.com/lifuhh/synbox-backend/issues">Report Bug</a> · 
-  <a href="https://github.com/lifuhh/synbox-backend/issues">Request Feature</a>
+  <a href="https://github.com/lifuhh/synbox-backend/issues" target="_blank" rel="noopener noreferrer">Report Bug</a> · 
+  <a href="https://github.com/lifuhh/synbox-backend/issues" target="_blank" rel="noopener noreferrer">Request Feature</a>
 </p>
 
 
