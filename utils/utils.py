@@ -193,13 +193,8 @@ def process_subtitle_file(
             end_time = round(parse_time(match.group(2)), 3)
             lyric_block = match.group(3).strip()
 
-            # Store original timing with the lyric
-            entry = {
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration": round(end_time - start_time, 3),
-                "lyric": lyric_block,
-            }
+            if not lyric_block:
+                continue
 
             processed_lyric = process_japanese_subtitle(lyric_block)
 
@@ -208,6 +203,14 @@ def process_subtitle_file(
                 exclude_str in processed_lyric for exclude_str in exclude_strings
             ):
                 continue
+
+            # Store original timing with the lyric
+            entry = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration": round(end_time - start_time, 3),
+                "lyric": lyric_block,
+            }
 
             # Handle line length limits while preserving timing
             if len(processed_lyric) > max_lyric_length and " " in processed_lyric:
