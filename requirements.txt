@@ -1,6 +1,6 @@
 annotated-types==0.7.0
 anyio==4.6.2.post1
-appwrite==7.0.0
+appwrite
 blinker==1.8.2
 certifi==2024.8.30
 charset-normalizer==3.4.0
